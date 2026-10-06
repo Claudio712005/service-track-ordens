@@ -8,7 +8,7 @@ plugins {
 
 group = "com.clau"
 version = "0.0.1-SNAPSHOT"
-description = "service-track-ordem"
+description = "service-track-ordens"
 
 java {
     toolchain {
