@@ -63,9 +63,22 @@ do exigido.
   embutido para a demonstração.
 - **BDD**: um fluxo completo em Cucumber cobrindo a saga e a compensação.
 - **Dockerfile, `k8s/`, `infra/terraform` e as esteiras.**
-- **Contratos de evento em JSON Schema**, adotando verbatim o esquema que o `catalogo` já
-  consome — o consumidor dele existe, testado, e divergir custa retrabalho em código que
-  funciona.
+
+---
+
+## Contrato da saga
+
+Escrito antes do código, de propósito: a saga atravessa três serviços e um contrato descoberto
+durante a implementação já nasce com um consumidor dependendo dele.
+
+- [`docs/saga/saga-da-ordem-de-servico.md`](docs/saga/saga-da-ordem-de-servico.md) — etapas,
+  compensação, hierarquia dos prazos e chave de idempotência.
+- [`docs/contratos/`](docs/contratos/) — JSON Schema dos comandos que este serviço publica e
+  dos eventos que consome.
+
+Os esquemas do estoque foram adotados **verbatim** do `service-track-catalogo`: o consumidor
+dele já existe e está testado, e divergir custaria retrabalho em código que funciona. O que
+mudou do original, e mudou porque a saga exigiu, está registrado na `GLOBAL-ADR-010`.
 
 ---
 
