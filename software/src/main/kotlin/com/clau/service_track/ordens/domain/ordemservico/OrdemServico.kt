@@ -152,6 +152,12 @@ class OrdemServico private constructor(
             "Aprovação só é possível quando a OS está aguardando aprovação"
         }
         orc.aprovar()
+        dataAtualizacao = LocalDateTime.now()
+    }
+
+    fun iniciarExecucao() {
+        val orc = orcamento ?: throw DomainException("OS não possui orçamento gerado")
+        check(orc.estaAprovado()) { "Execução só começa com orçamento aprovado" }
         alterarStatus(StatusOrdemServicoEnum.EM_EXECUCAO)
     }
 
