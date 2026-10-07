@@ -1,0 +1,24 @@
+name: service-track-ordens
+
+services:
+
+  postgres:
+    image: postgres:16
+    container_name: st-ord-postgres
+    environment:
+      POSTGRES_DB: st_ord
+      POSTGRES_USER: st_ord_user
+      POSTGRES_PASSWORD: st_ord_local
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./db/postgres:/docker-entrypoint-initdb.d:ro
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U st_ord_user -d st_ord"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres:

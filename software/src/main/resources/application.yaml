@@ -1,6 +1,30 @@
 spring:
   application:
     name: service-track-ordens
+  datasource:
+    url: ${ST_ORD_DB_URL}
+    username: ${ST_ORD_DB_USER}
+    password: ${ST_ORD_DB_PASSWORD}
+    hikari:
+      pool-name: st-ord-pool
+      maximum-pool-size: ${ST_ORD_DB_POOL_MAX:10}
+      minimum-idle: ${ST_ORD_DB_POOL_MIN:2}
+      connection-timeout: 3000
+      validation-timeout: 2000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  shutdown: graceful
 
 management:
   endpoints:
@@ -11,6 +35,9 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    db:
+      enabled: true
   tracing:
     sampling:
       probability: ${ST_ORD_TRACE_SAMPLING:1.0}
@@ -22,9 +49,27 @@ management:
       export:
         enabled: ${ST_ORD_OTLP_ENABLED:false}
 
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
 logging:
   structured:
     format:
       console: ${ST_ORD_LOG_FORMAT:logstash}
   pattern:
     correlation: "[${spring.application.name:service-track-ordens},%X{traceId:-},%X{spanId:-},%X{correlationId:-},%X{requestId:-}] "
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+  datasource:
+    url: ${ST_ORD_DB_URL:jdbc:postgresql://localhost:5433/st_ord}
+    username: ${ST_ORD_DB_USER:st_ord_user}
+    password: ${ST_ORD_DB_PASSWORD:st_ord_local}
+
+logging:
+  level:
+    com.clau.service_track.ordens: DEBUG

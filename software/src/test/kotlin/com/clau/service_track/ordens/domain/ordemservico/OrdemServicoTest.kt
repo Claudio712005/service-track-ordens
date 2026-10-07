@@ -77,12 +77,40 @@ class OrdemServicoTest {
     }
 
     @Test
-    fun `deve transitar para EM_EXECUCAO ao aprovar orçamento`() {
+    fun `aprovar orçamento não transiciona, porque a saga ainda não confirmou`() {
         val os = buildOS()
         os.iniciarDiagnostico()
         os.gerarOrcamento(custoMaoDeObra, custoInsumos)
         os.aprovarOrcamento()
+        assertEquals(StatusOrdemServicoEnum.AGUARDANDO_APROVACAO, os.obterStatus())
+        assertTrue(os.obterOrcamento()!!.estaAprovado())
+    }
+
+    @Test
+    fun `deve transitar para EM_EXECUCAO ao iniciar a execução`() {
+        val os = buildOS()
+        os.iniciarDiagnostico()
+        os.gerarOrcamento(custoMaoDeObra, custoInsumos)
+        os.aprovarOrcamento()
+        os.iniciarExecucao()
         assertEquals(StatusOrdemServicoEnum.EM_EXECUCAO, os.obterStatus())
+    }
+
+    @Test
+    fun `não inicia execução sem orçamento aprovado`() {
+        val os = buildOS()
+        os.iniciarDiagnostico()
+        os.gerarOrcamento(custoMaoDeObra, custoInsumos)
+
+        val excecao = assertThrows<IllegalStateException> { os.iniciarExecucao() }
+        assertTrue(excecao.message!!.contains("aprovado"))
+    }
+
+    @Test
+    fun `não inicia execução de OS sem orçamento`() {
+        val os = buildOS()
+
+        assertThrows<DomainException> { os.iniciarExecucao() }
     }
 
     @Test
@@ -91,6 +119,7 @@ class OrdemServicoTest {
         os.iniciarDiagnostico()
         os.gerarOrcamento(custoMaoDeObra, custoInsumos)
         os.aprovarOrcamento()
+        os.iniciarExecucao()
         os.finalizar()
         assertEquals(StatusOrdemServicoEnum.FINALIZADA, os.obterStatus())
     }
@@ -101,6 +130,7 @@ class OrdemServicoTest {
         os.iniciarDiagnostico()
         os.gerarOrcamento(custoMaoDeObra, custoInsumos)
         os.aprovarOrcamento()
+        os.iniciarExecucao()
         os.finalizar()
         os.entregar()
         assertEquals(StatusOrdemServicoEnum.ENTREGUE, os.obterStatus())
@@ -136,9 +166,11 @@ class OrdemServicoTest {
         os.iniciarDiagnostico()
         val insumoId = InsumoId.gerar()
 
-        os.adicionarInsumo(insumoId)
+        val item = os.adicionarInsumo(insumoId, BigDecimal("3.5"))
 
-        assertTrue(os.listarInsumos().contains(insumoId))
+        assertEquals(insumoId, item.insumoId)
+        assertEquals(0, item.quantidade.compareTo(BigDecimal("3.5")))
+        assertTrue(os.listarInsumos().any { it.insumoId == insumoId })
     }
 
     @Test
@@ -148,17 +180,39 @@ class OrdemServicoTest {
         val id1 = InsumoId.gerar()
         val id2 = InsumoId.gerar()
 
-        os.adicionarInsumo(id1)
-        os.adicionarInsumo(id2)
+        os.adicionarInsumo(id1, BigDecimal.ONE)
+        os.adicionarInsumo(id2, BigDecimal.ONE)
 
         assertEquals(2, os.listarInsumos().size)
+    }
+
+    @Test
+    fun `adicionar o mesmo insumo soma a quantidade em vez de duplicar a linha`() {
+        val os = buildOS()
+        os.iniciarDiagnostico()
+        val insumoId = InsumoId.gerar()
+
+        os.adicionarInsumo(insumoId, BigDecimal("2"))
+        os.adicionarInsumo(insumoId, BigDecimal("1.5"))
+
+        assertEquals(1, os.listarInsumos().size)
+        assertEquals(0, os.listarInsumos().first().quantidade.compareTo(BigDecimal("3.5")))
+    }
+
+    @Test
+    fun `nao adiciona insumo com quantidade nao positiva`() {
+        val os = buildOS()
+        os.iniciarDiagnostico()
+
+        assertThrows<DomainException> { os.adicionarInsumo(InsumoId.gerar(), BigDecimal.ZERO) }
+        assertThrows<DomainException> { os.adicionarInsumo(InsumoId.gerar(), BigDecimal("-1")) }
     }
 
     @Test
     fun `deve lançar exceção ao adicionar insumo fora do diagnóstico`() {
         val os = buildOS()
         val exception = assertThrows<IllegalStateException> {
-            os.adicionarInsumo(InsumoId.gerar())
+            os.adicionarInsumo(InsumoId.gerar(), BigDecimal.ONE)
         }
         assertTrue(exception.message!!.contains("diagnóstico"))
     }
@@ -168,18 +222,18 @@ class OrdemServicoTest {
         val os = buildOS()
         os.iniciarDiagnostico()
         val insumoId = InsumoId.gerar()
-        os.adicionarInsumo(insumoId)
+        os.adicionarInsumo(insumoId, BigDecimal.ONE)
 
         os.removerInsumo(insumoId)
 
-        assertFalse(os.listarInsumos().contains(insumoId))
+        assertFalse(os.listarInsumos().any { it.insumoId == insumoId })
     }
 
     @Test
     fun `deve lançar exceção ao remover insumo inexistente`() {
         val os = buildOS()
         os.iniciarDiagnostico()
-        assertThrows<IllegalStateException> {
+        assertThrows<DomainException> {
             os.removerInsumo(InsumoId.gerar())
         }
     }
@@ -188,13 +242,25 @@ class OrdemServicoTest {
     fun `listarInsumos deve retornar cópia defensiva`() {
         val os = buildOS()
         os.iniciarDiagnostico()
-        os.adicionarInsumo(InsumoId.gerar())
+        os.adicionarInsumo(InsumoId.gerar(), BigDecimal.ONE)
 
         val snapshot = os.listarInsumos()
-        os.adicionarInsumo(InsumoId.gerar())
+        os.adicionarInsumo(InsumoId.gerar(), BigDecimal.ONE)
 
         assertEquals(1, snapshot.size)
         assertEquals(2, os.listarInsumos().size)
+    }
+
+    @Test
+    fun `alterar quantidade do item de insumo recusa valor nao positivo`() {
+        val os = buildOS()
+        os.iniciarDiagnostico()
+        val item = os.adicionarInsumo(InsumoId.gerar(), BigDecimal("2"))
+
+        item.alterarQuantidade(BigDecimal("5"))
+        assertEquals(0, item.quantidade.compareTo(BigDecimal("5")))
+
+        assertThrows<DomainException> { item.alterarQuantidade(BigDecimal.ZERO) }
     }
 
     @Test
@@ -463,6 +529,7 @@ class OrdemServicoTest {
         val item = os.adicionarServico(servicoId, ValorMonetario(BigDecimal("80.00")))
         os.gerarOrcamento(custoMaoDeObra, custoInsumos)
         os.aprovarOrcamento()
+        os.iniciarExecucao()
 
         val mecanicoId = UsuarioId.gerar()
         os.concluirItemServico(item.id, mecanicoId, "Servico executado")
@@ -491,6 +558,7 @@ class OrdemServicoTest {
         os.iniciarDiagnostico()
         os.gerarOrcamento(custoMaoDeObra, custoInsumos)
         os.aprovarOrcamento()
+        os.iniciarExecucao()
 
         val exception = assertThrows<DomainException> {
             os.concluirItemServico(ItemOrdemServicoId.gerar(), UsuarioId.gerar(), "Servico executado")
