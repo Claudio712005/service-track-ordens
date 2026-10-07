@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: service-track-ordens
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      probability: ${ST_ORD_TRACE_SAMPLING:1.0}
+  otlp:
+    tracing:
+      export:
+        enabled: ${ST_ORD_OTLP_ENABLED:false}
+    metrics:
+      export:
+        enabled: ${ST_ORD_OTLP_ENABLED:false}
+
+logging:
+  structured:
+    format:
+      console: ${ST_ORD_LOG_FORMAT:logstash}
+  pattern:
+    correlation: "[${spring.application.name:service-track-ordens},%X{traceId:-},%X{spanId:-},%X{correlationId:-},%X{requestId:-}] "
