@@ -115,6 +115,57 @@ CREATE INDEX IF NOT EXISTS IX_HISTORICO_STATUS_ORDEM ON HISTORICO_STATUS (ORDEM_
 
 COMMENT ON INDEX IX_HISTORICO_STATUS_ORDEM IS 'O historico e sempre lido por OS, em ordem cronologica crescente.';
 
+CREATE TABLE IF NOT EXISTS SAGAS (
+    ID UUID NOT NULL,
+    ORDEM_SERVICO_ID UUID NOT NULL,
+    TIPO VARCHAR(20) NOT NULL,
+    SITUACAO VARCHAR(20) NOT NULL,
+    ETAPA VARCHAR(20) NOT NULL,
+    PRAZO_DA_ETAPA TIMESTAMPTZ(6) NOT NULL,
+    MOTIVO VARCHAR(500),
+    VERSAO INTEGER NOT NULL DEFAULT 0,
+    DATA_CRIACAO TIMESTAMPTZ(6) NOT NULL,
+    DATA_ATUALIZACAO TIMESTAMPTZ(6) NOT NULL,
+    PRIMARY KEY (ID),
+    CONSTRAINT FK_SAGAS_ORDEM FOREIGN KEY (ORDEM_SERVICO_ID) REFERENCES ORDENS_SERVICO (ID) ON DELETE CASCADE,
+    CONSTRAINT UQ_SAGAS_ORDEM_TIPO UNIQUE (ORDEM_SERVICO_ID, TIPO)
+);
+
+COMMENT ON TABLE SAGAS IS 'Progresso da transacao distribuida. Fica aqui, e nao no enum de status da OS, porque etapa de saga e detalhe de infraestrutura: inventar AGUARDANDO_RESERVA poluiria o dominio.';
+COMMENT ON COLUMN SAGAS.ORDEM_SERVICO_ID IS 'Identidade da saga. A chave da mensagem no broker e a chave de idempotencia derivam dele.';
+COMMENT ON COLUMN SAGAS.TIPO IS 'RESERVA ou CONSUMO. Sao duas sagas sequenciais na vida de uma OS, nao uma.';
+COMMENT ON COLUMN SAGAS.SITUACAO IS 'EM_CURSO, CONCLUIDA, COMPENSANDO, COMPENSADA ou FALHA. FALHA e o consumo recusado, que nao tem compensacao possivel.';
+COMMENT ON COLUMN SAGAS.ETAPA IS 'Etapa corrente, com teto de 20 caracteres: ela entra na chave de idempotencia, que o INBOX do catalogo guarda em 120 junto com o tipo da mensagem.';
+COMMENT ON COLUMN SAGAS.PRAZO_DA_ETAPA IS 'Quando esta etapa reprova por tempo. E sempre menor que o expiraEm da reserva no catalogo: o orquestrador e dono do relogio, e a expiracao de la e rede de seguranca.';
+COMMENT ON COLUMN SAGAS.VERSAO IS 'Trava otimista. Duas confirmacoes do mesmo passo chegando juntas tem de colidir aqui.';
+
+CREATE INDEX IF NOT EXISTS IX_SAGAS_PRAZO ON SAGAS (PRAZO_DA_ETAPA) WHERE SITUACAO = 'EM_CURSO';
+
+COMMENT ON INDEX IX_SAGAS_PRAZO IS 'A rotina de prazo le so saga em curso. Indice sobre a tabela inteira cresceria com o historico de sagas encerradas.';
+
+CREATE TABLE IF NOT EXISTS SAGA_PASSOS (
+    ID UUID NOT NULL,
+    SAGA_ID UUID NOT NULL,
+    ETAPA VARCHAR(20) NOT NULL,
+    INSUMO_ID UUID NOT NULL,
+    QUANTIDADE NUMERIC(14,4) NOT NULL,
+    SITUACAO VARCHAR(20) NOT NULL,
+    MOTIVO VARCHAR(500),
+    DATA_CRIACAO TIMESTAMPTZ(6) NOT NULL,
+    DATA_ATUALIZACAO TIMESTAMPTZ(6) NOT NULL,
+    PRIMARY KEY (ID),
+    CONSTRAINT FK_SAGA_PASSOS_SAGA FOREIGN KEY (SAGA_ID) REFERENCES SAGAS (ID) ON DELETE CASCADE,
+    CONSTRAINT UQ_SAGA_PASSOS_ETAPA_INSUMO UNIQUE (SAGA_ID, ETAPA, INSUMO_ID),
+    CONSTRAINT CK_SAGA_PASSOS_QUANTIDADE CHECK (QUANTIDADE > 0)
+);
+
+COMMENT ON TABLE SAGA_PASSOS IS 'Um passo por insumo por etapa. A etapa de reserva com cinco insumos so e bem-sucedida com cinco confirmacoes.';
+COMMENT ON CONSTRAINT UQ_SAGA_PASSOS_ETAPA_INSUMO ON SAGA_PASSOS IS 'Espelha a chave de idempotencia <ordemServicoId>:<ETAPA>:<insumoId>: dois passos iguais seriam duas mensagens com a mesma chave, e a segunda viraria operacao nula no destino.';
+COMMENT ON COLUMN SAGA_PASSOS.SITUACAO IS 'PEDIDO, CONFIRMADO, RECUSADO, EXPIRADO ou COMPENSADO.';
+COMMENT ON COLUMN SAGA_PASSOS.MOTIVO IS 'Texto que o destino devolveu na recusa. E o que o atendente le para entender a compensacao.';
+
+CREATE INDEX IF NOT EXISTS IX_SAGA_PASSOS_SAGA ON SAGA_PASSOS (SAGA_ID, ETAPA);
+
 CREATE TABLE IF NOT EXISTS OUTBOX (
     ID UUID NOT NULL,
     AGREGADO_TIPO VARCHAR(40) NOT NULL,
