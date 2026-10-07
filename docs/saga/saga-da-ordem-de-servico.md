@@ -42,10 +42,11 @@ em `AGUARDANDO_APROVACAO`, e não existe estado intermediário visível ao clien
 da saga vive em tabela própria do orquestrador, não no enum da OS. Inventar
 `AGUARDANDO_RESERVA` poluiria o domínio com detalhe de infraestrutura.
 
-> **Consequência para a etapa 3:** `OrdemServico.aprovarOrcamento()` hoje aprova o orçamento
-> **e** transiciona para `EM_EXECUCAO` numa chamada. A saga precisa dos dois passos separados:
-> aprovar o orçamento abre a saga, e a transição acontece na confirmação. Mesma coisa em
-> `finalizar()`. É a única mudança que este contrato impõe ao agregado.
+> **Consequência para o agregado:** `aprovarOrcamento()` aprovava o orçamento **e**
+> transicionava para `EM_EXECUCAO` numa chamada. A saga precisa dos dois passos separados, então
+> a aprovação passa a só aprovar e `iniciarExecucao()` nasce para a confirmação. `finalizar()`
+> **não** precisa mudar: já é transição pura, e quem decide quando chamá-lo é a aplicação. É a
+> única mudança que este contrato impõe ao agregado.
 
 ---
 
