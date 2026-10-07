@@ -11,6 +11,7 @@ import com.clau.service_track.ordens.domain.DomainException
 import com.clau.service_track.ordens.domain.vo.ValorMonetario
 import com.clau.service_track.ordens.domain.referencia.UsuarioId
 import com.clau.service_track.ordens.domain.referencia.VeiculoId
+import java.math.BigDecimal
 import java.time.LocalDateTime
 
 class OrdemServico private constructor(
@@ -25,7 +26,7 @@ class OrdemServico private constructor(
     private var status: StatusOrdemServico,
     private var prazoConclusao: PrazoConclusao?,
     private var orcamento: Orcamento?,
-    private val insumos: MutableList<InsumoId>,
+    private val insumos: MutableList<ItemInsumo>,
     private val itensServico: MutableList<ItemOrdemServico>,
 ) {
 
@@ -71,7 +72,7 @@ class OrdemServico private constructor(
             status: StatusOrdemServico,
             prazoConclusao: PrazoConclusao?,
             orcamento: Orcamento?,
-            insumos: MutableList<InsumoId>,
+            insumos: MutableList<ItemInsumo>,
             itensServico: MutableList<ItemOrdemServico>,
         ): OrdemServico = OrdemServico(
             id = id,
@@ -95,7 +96,7 @@ class OrdemServico private constructor(
 
     fun obterOrcamento(): Orcamento? = orcamento
 
-    fun listarInsumos(): List<InsumoId> = insumos.toList()
+    fun listarInsumos(): List<ItemInsumo> = insumos.toList()
 
     fun obterMecanicoId(): UsuarioId = mecanicoId
 
@@ -122,19 +123,31 @@ class OrdemServico private constructor(
         alterarStatus(StatusOrdemServicoEnum.CANCELADA)
     }
 
-    fun adicionarInsumo(insumoId: InsumoId) {
+    fun adicionarInsumo(insumoId: InsumoId, quantidade: BigDecimal): ItemInsumo {
         check(status.valor == StatusOrdemServicoEnum.EM_DIAGNOSTICO) {
             "Insumos só podem ser adicionados durante o diagnóstico"
         }
-        insumos.add(insumoId)
+
+        val existente = insumos.find { it.insumoId == insumoId }
+        if (existente != null) {
+            existente.somarQuantidade(quantidade)
+            dataAtualizacao = LocalDateTime.now()
+            return existente
+        }
+
+        val item = ItemInsumo.criar(insumoId = insumoId, ordemServicoId = id, quantidade = quantidade)
+        insumos.add(item)
         dataAtualizacao = LocalDateTime.now()
+        return item
     }
 
     fun removerInsumo(insumoId: InsumoId) {
         check(status.valor == StatusOrdemServicoEnum.EM_DIAGNOSTICO) {
             "Insumos só podem ser removidos durante o diagnóstico"
         }
-        check(insumos.remove(insumoId)) { "Insumo não encontrado na OS" }
+        val item = insumos.find { it.insumoId == insumoId }
+            ?: throw DomainException("Insumo não encontrado nesta OS")
+        insumos.remove(item)
         dataAtualizacao = LocalDateTime.now()
     }
 
