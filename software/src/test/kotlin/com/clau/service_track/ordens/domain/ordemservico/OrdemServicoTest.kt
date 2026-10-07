@@ -77,12 +77,40 @@ class OrdemServicoTest {
     }
 
     @Test
-    fun `deve transitar para EM_EXECUCAO ao aprovar orçamento`() {
+    fun `aprovar orçamento não transiciona, porque a saga ainda não confirmou`() {
         val os = buildOS()
         os.iniciarDiagnostico()
         os.gerarOrcamento(custoMaoDeObra, custoInsumos)
         os.aprovarOrcamento()
+        assertEquals(StatusOrdemServicoEnum.AGUARDANDO_APROVACAO, os.obterStatus())
+        assertTrue(os.obterOrcamento()!!.estaAprovado())
+    }
+
+    @Test
+    fun `deve transitar para EM_EXECUCAO ao iniciar a execução`() {
+        val os = buildOS()
+        os.iniciarDiagnostico()
+        os.gerarOrcamento(custoMaoDeObra, custoInsumos)
+        os.aprovarOrcamento()
+        os.iniciarExecucao()
         assertEquals(StatusOrdemServicoEnum.EM_EXECUCAO, os.obterStatus())
+    }
+
+    @Test
+    fun `não inicia execução sem orçamento aprovado`() {
+        val os = buildOS()
+        os.iniciarDiagnostico()
+        os.gerarOrcamento(custoMaoDeObra, custoInsumos)
+
+        val excecao = assertThrows<IllegalStateException> { os.iniciarExecucao() }
+        assertTrue(excecao.message!!.contains("aprovado"))
+    }
+
+    @Test
+    fun `não inicia execução de OS sem orçamento`() {
+        val os = buildOS()
+
+        assertThrows<DomainException> { os.iniciarExecucao() }
     }
 
     @Test
@@ -91,6 +119,7 @@ class OrdemServicoTest {
         os.iniciarDiagnostico()
         os.gerarOrcamento(custoMaoDeObra, custoInsumos)
         os.aprovarOrcamento()
+        os.iniciarExecucao()
         os.finalizar()
         assertEquals(StatusOrdemServicoEnum.FINALIZADA, os.obterStatus())
     }
@@ -101,6 +130,7 @@ class OrdemServicoTest {
         os.iniciarDiagnostico()
         os.gerarOrcamento(custoMaoDeObra, custoInsumos)
         os.aprovarOrcamento()
+        os.iniciarExecucao()
         os.finalizar()
         os.entregar()
         assertEquals(StatusOrdemServicoEnum.ENTREGUE, os.obterStatus())
@@ -463,6 +493,7 @@ class OrdemServicoTest {
         val item = os.adicionarServico(servicoId, ValorMonetario(BigDecimal("80.00")))
         os.gerarOrcamento(custoMaoDeObra, custoInsumos)
         os.aprovarOrcamento()
+        os.iniciarExecucao()
 
         val mecanicoId = UsuarioId.gerar()
         os.concluirItemServico(item.id, mecanicoId, "Servico executado")
@@ -491,6 +522,7 @@ class OrdemServicoTest {
         os.iniciarDiagnostico()
         os.gerarOrcamento(custoMaoDeObra, custoInsumos)
         os.aprovarOrcamento()
+        os.iniciarExecucao()
 
         val exception = assertThrows<DomainException> {
             os.concluirItemServico(ItemOrdemServicoId.gerar(), UsuarioId.gerar(), "Servico executado")
