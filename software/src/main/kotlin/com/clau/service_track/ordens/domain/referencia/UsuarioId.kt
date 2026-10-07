@@ -4,7 +4,7 @@ import com.clau.service_track.ordens.domain.DomainException
 import java.util.UUID
 
 @JvmInline
-value class UsuarioId(val valor: String) {
+value class UsuarioId private constructor(val valor: String) {
 
     init {
         if (!FORMATO_UUID.matches(valor)) {
@@ -17,5 +17,7 @@ value class UsuarioId(val valor: String) {
             Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
         fun gerar() = UsuarioId(UUID.randomUUID().toString())
+
+        fun de(valor: String) = UsuarioId(valor)
     }
 }
