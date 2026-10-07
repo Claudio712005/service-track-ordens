@@ -1,13 +1,23 @@
 package com.clau.service_track.ordens
 
-import org.junit.jupiter.api.Test
+import kotlin.test.Test
 import org.springframework.boot.test.context.SpringBootTest
 
-@SpringBootTest
+@SpringBootTest(
+    properties = [
+        "spring.datasource.url=jdbc:h2:mem:st_ord;DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
+        "spring.datasource.driver-class-name=org.h2.Driver",
+        "spring.datasource.username=sa",
+        "spring.datasource.password=",
+        "spring.jpa.hibernate.ddl-auto=none",
+        "servicetrack.mensageria.habilitada=false",
+        "management.otlp.tracing.export.enabled=false",
+        "management.otlp.metrics.export.enabled=false",
+    ],
+)
 class ApplicationTests {
 
     @Test
-    fun contextLoads() {
+    fun `o contexto sobe`() {
     }
-
 }
