@@ -111,12 +111,13 @@ as duas coisas.
 | `ETAPA` | 20 — teto da convenção, nome mais longo hoje é `LIBERACAO_DE_INSUMOS` |
 | `insumoId` | 36 |
 | separadores | 2 |
-| **chave** | **94** |
-| prefixo do tipo, que o catálogo acrescenta ao gravar no INBOX | 16 |
-| **total gravado** | **110**, contra `INBOX.ID VARCHAR(120)` |
+| **chave** | **94**, que é o `maxLength` declarado no esquema |
+| prefixo do tipo, que o catálogo acrescenta ao gravar no INBOX | 26, no tipo mais longo |
+| **total gravado** | **120**, exatamente o tamanho de `INBOX.ID VARCHAR(120)` |
 
-Nome de etapa com mais de 20 caracteres estoura o INBOX do catálogo e o erro aparece como
-falha de gravação no consumidor alheio, não aqui. O teto é regra, não sugestão.
+Não há folga. Nome de etapa com mais de 20 caracteres estoura o INBOX do catálogo, e o erro
+aparece como falha de gravação no consumidor alheio, não aqui. O teto é regra, não sugestão —
+e o teste de contrato do catálogo verifica a aritmética contra a coluna real.
 
 Para `RegistrarEntradaDeEstoque`, que é ação humana e não passo de saga, a chave continua
 sendo um UUID.

@@ -9,9 +9,9 @@
     "idMensagem": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 120,
+      "maxLength": 94,
       "pattern": "^[A-Za-z0-9:_-]+$",
-      "description": "Chave de idempotencia. Reentrega com o mesmo valor nao aplica efeito de novo. O formato e livre de proposito: o consumidor so precisa de unicidade. A saga usa <ordemServicoId>:<ETAPA>:<insumoId>, convencao do produtor descrita em GLOBAL-ADR-010, porque chave que nao diz a etapa custa caro em log e em DLT."
+      "description": "Chave de idempotencia. Reentrega com o mesmo valor nao aplica efeito de novo. O formato e livre de proposito: o consumidor so precisa de unicidade. A saga usa <ordemServicoId>:<ETAPA>:<insumoId>, convencao do produtor descrita em GLOBAL-ADR-010, porque chave que nao diz a etapa custa caro em log e em DLT. O teto de 94 nao e estetico: o catalogo grava <tipo>:<idMensagem> no INBOX, cuja coluna tem 120, e o tipo mais longo tem 25 caracteres."
     },
     "tipo": {
       "enum": ["ReservarEstoque", "ConsumirReserva", "LiberarReserva", "RegistrarEntradaDeEstoque"]
