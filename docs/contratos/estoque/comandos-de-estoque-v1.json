@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "servicetrack/estoque/comandos/v1",
+  "$id": "urn:servicetrack:esquema:estoque:comandos:v1",
   "title": "Comandos de estoque do catalogo, versao 1",
   "description": "Contrato do topico servicetrack.estoque.comandos.v1. O dono e o service-track-ordens, que publica os comandos como passos da saga; o service-track-catalogo mantem copia identica como contrato de leitura. Campo desconhecido em dados e ignorado, para que evolucao aditiva nao exija deploy combinado.",
   "type": "object",

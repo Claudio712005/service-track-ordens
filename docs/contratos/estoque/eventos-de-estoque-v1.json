@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "servicetrack/estoque/eventos/v1",
+  "$id": "urn:servicetrack:esquema:estoque:eventos:v1",
   "title": "Eventos de estoque do catalogo, versao 1",
   "description": "Contrato do topico servicetrack.estoque.eventos.v1. O dono e o service-track-catalogo; o service-track-ordens mantem copia identica como contrato de leitura. Evolucao e aditiva: campo novo e tipo novo nao mudam a versao, remocao ou troca de tipo mudam. Quebra de evento nao da erro HTTP, da silencio e dado errado.",
   "type": "object",

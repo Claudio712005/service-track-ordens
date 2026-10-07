@@ -45,7 +45,8 @@ pegar. Procedimento de mudança de contrato de mensagem: `GLOBAL-ADR-010`.
 
 | Campo | Restrição que não é óbvia |
 |---|---|
-| `idMensagem` do comando | 120 caracteres, e o catálogo acrescenta o tipo ao gravar no INBOX — orçamento detalhado no documento da saga |
+| `idMensagem` do comando | 94 caracteres, porque o catálogo acrescenta o tipo ao gravar no INBOX, de 120 — orçamento detalhado no documento da saga |
 | `expiraEm` de `ReservarEstoque` | obrigatório; o prazo do passo da saga é sempre menor que ele |
-| `traceId` do envelope | redundância de depuração; o trace canônico é o cabeçalho `traceparent` |
+| `traceId` do envelope | redundância de depuração; o trace canônico é o cabeçalho `traceparent`, e é ele que vence quando os dois existem |
 | chave da mensagem no broker | `ordemServicoId`, sempre, em comando e em evento — é o que preserva a ordem dos passos |
+| `$id` dos esquemas | URN, não URL. `$id` relativo é inválido em 2020-12, e URL prometeria um endereço que ambiente efêmero não sustenta |
