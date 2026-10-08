@@ -3,7 +3,11 @@ package com.clau.service_track.ordens.infrastructure.adapter.`in`.controller
 import com.clau.service_track.ordens.CorrelacaoFixaAdapter
 import com.clau.service_track.ordens.HistoricoStatusRepositoryMemoriaAdapter
 import com.clau.service_track.ordens.OrdemServicoRepositoryMemoriaAdapter
+import com.clau.service_track.ordens.OutboxMemoriaAdapter
+import com.clau.service_track.ordens.SagaRepositoryMemoriaAdapter
+import com.clau.service_track.ordens.application.handler.ordemservico.FluxoDaOrdemServico
 import com.clau.service_track.ordens.application.handler.ordemservico.OrdemServicoCommandHandler
+import com.clau.service_track.ordens.application.handler.saga.OrquestradorDaSaga
 import com.clau.service_track.ordens.application.handler.ordemservico.OrdemServicoQueryHandler
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.AbrirOrdemServicoCommand
 import com.clau.service_track.ordens.domain.ordemservico.OrdemServico
@@ -32,6 +36,27 @@ class OrdemServicoApiControllerTest {
     private val escrita = OrdemServicoCommandHandler(ordens, historico, CorrelacaoFixaAdapter("atendimento-1"))
     private val leitura = OrdemServicoQueryHandler(ordens, historico)
     private val mapper = OrdemServicoWebMapper()
+    private val sagas = SagaRepositoryMemoriaAdapter()
+    private val outbox = OutboxMemoriaAdapter()
+
+    private val orquestrador = OrquestradorDaSaga(
+        sagas = sagas,
+        ordens = ordens,
+        outbox = outbox,
+        comandos = { _, _ -> emptyList() },
+        iniciarExecucao = escrita,
+        finalizar = escrita,
+        cancelar = escrita,
+        prazoDaEtapa = java.time.Duration.ofMinutes(2),
+    )
+
+    private val fluxo = FluxoDaOrdemServico(
+        ordens = ordens,
+        aprovar = escrita,
+        iniciarExecucao = escrita,
+        finalizar = escrita,
+        orquestrador = orquestrador,
+    )
 
     private lateinit var mockMvc: MockMvc
 
@@ -39,6 +64,8 @@ class OrdemServicoApiControllerTest {
     fun preparar() {
         ordens.reiniciar()
         historico.reiniciar()
+        sagas.reiniciar()
+        outbox.reiniciar()
 
         val controller = OrdemServicoApiController(
             abrir = escrita,
@@ -51,11 +78,10 @@ class OrdemServicoApiControllerTest {
             adicionarServicoUseCase = escrita,
             removerServicoUseCase = escrita,
             gerarOrcamentoUseCase = escrita,
-            aprovarOrcamentoUseCase = escrita,
+            fluxo = fluxo,
             reprovarOrcamentoUseCase = escrita,
             iniciarExecucaoUseCase = escrita,
             concluirItemServicoUseCase = escrita,
-            finalizarUseCase = escrita,
             entregarUseCase = escrita,
             cancelarUseCase = escrita,
             definirPrazoUseCase = escrita,
@@ -172,22 +198,14 @@ class OrdemServicoApiControllerTest {
     }
 
     @Test
-    fun `ciclo completo da ordem atravessa os endpoints`() {
+    fun `ordem sem insumo atravessa os endpoints sem saga`() {
         val ordem = ordemAberta()
         val id = ordem.id.valor
-        val insumo = UUID.randomUUID()
         val servico = UUID.randomUUID()
 
         mockMvc.perform(post("/ordens/$id/diagnostico"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.status").value("EM_DIAGNOSTICO"))
-
-        mockMvc.perform(
-            post("/ordens/$id/insumos").contentType(MediaType.APPLICATION_JSON)
-                .content("""{"insumoId":"$insumo","quantidade":4.5}""")
-        )
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$.itensInsumo[0].quantidade").value(4.5))
 
         mockMvc.perform(
             post("/ordens/$id/servicos").contentType(MediaType.APPLICATION_JSON)
@@ -204,12 +222,8 @@ class OrdemServicoApiControllerTest {
 
         mockMvc.perform(post("/ordens/$id/orcamento/aprovacao"))
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.status").value("AGUARDANDO_APROVACAO"))
-            .andExpect(jsonPath("$.orcamento.aprovado").value(true))
-
-        mockMvc.perform(post("/ordens/$id/execucao"))
-            .andExpect(status().isOk)
             .andExpect(jsonPath("$.status").value("EM_EXECUCAO"))
+            .andExpect(jsonPath("$.orcamento.aprovado").value(true))
 
         mockMvc.perform(post("/ordens/$id/finalizacao"))
             .andExpect(status().isOk)
@@ -224,6 +238,38 @@ class OrdemServicoApiControllerTest {
             .andExpect(jsonPath("$.length()").value(6))
             .andExpect(jsonPath("$[0].statusAnterior").doesNotExist())
             .andExpect(jsonPath("$[0].correlationId").value("atendimento-1"))
+    }
+
+    @Test
+    fun `com insumo a aprovacao abre a saga e a ordem espera a confirmacao`() {
+        val ordem = ordemAberta()
+        val id = ordem.id.valor
+        val insumo = UUID.randomUUID()
+
+        mockMvc.perform(post("/ordens/$id/diagnostico")).andExpect(status().isOk)
+        mockMvc.perform(
+            post("/ordens/$id/insumos").contentType(MediaType.APPLICATION_JSON)
+                .content("""{"insumoId":"$insumo","quantidade":4.5}""")
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.itensInsumo[0].quantidade").value(4.5))
+
+        mockMvc.perform(
+            post("/ordens/$id/orcamento").contentType(MediaType.APPLICATION_JSON)
+                .content("""{"custoMaoDeObra":180.00,"custoInsumos":220.50}""")
+        ).andExpect(status().isOk)
+
+        mockMvc.perform(post("/ordens/$id/orcamento/aprovacao"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.status").value("AGUARDANDO_APROVACAO"))
+            .andExpect(jsonPath("$.orcamento.aprovado").value(true))
+
+        val saga = sagas.porOrdemETipo(
+            ordem.id,
+            com.clau.service_track.ordens.domain.saga.TipoDeSaga.RESERVA,
+        )
+        kotlin.test.assertNotNull(saga, "aprovar o orcamento tem de abrir a saga de reserva")
+        kotlin.test.assertEquals(1, saga.passosPendentes().size)
     }
 
     @Test
@@ -332,8 +378,9 @@ class OrdemServicoApiControllerTest {
             post("/ordens/$id/orcamento").contentType(MediaType.APPLICATION_JSON)
                 .content("""{"custoMaoDeObra":90.00,"custoInsumos":0.00}""")
         ).andExpect(status().isOk)
-        mockMvc.perform(post("/ordens/$id/orcamento/aprovacao")).andExpect(status().isOk)
-        mockMvc.perform(post("/ordens/$id/execucao")).andExpect(status().isOk)
+        mockMvc.perform(post("/ordens/$id/orcamento/aprovacao"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.status").value("EM_EXECUCAO"))
 
         val itemId = ordens.porId(ordem.id)!!.listarServicos().first().id.valor
 

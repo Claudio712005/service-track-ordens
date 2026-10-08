@@ -21,6 +21,10 @@ class SagaRepositoryMemoriaAdapter : SagaRepositoryPort {
         relogio = LocalDateTime.now().plusHours(1)
     }
 
+    fun restaurarRelogio() {
+        relogio = null
+    }
+
     override fun salvar(saga: Saga): Saga {
         sagas[saga.id.valor] = saga
         return saga
@@ -32,8 +36,8 @@ class SagaRepositoryMemoriaAdapter : SagaRepositoryPort {
     override fun emCursoPorOrdem(ordemServicoId: OrdemServicoId): List<Saga> = sagas.values
         .filter { it.ordemServicoId == ordemServicoId && !it.situacao.encerrada }
 
-    override fun comPrazoVencido(momento: LocalDateTime, limite: Int): List<Saga> {
+    override fun travarProximaVencida(momento: LocalDateTime): Saga? {
         val referencia = relogio ?: momento
-        return sagas.values.filter { it.expirouEm(referencia) }.take(limite)
+        return sagas.values.firstOrNull { it.expirouEm(referencia) }
     }
 }
