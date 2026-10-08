@@ -35,14 +35,14 @@ class SagaRepositoryPostgresAdapter(
         .findByOrdemServicoIdAndSituacaoIn(UUID.fromString(ordemServicoId.valor), SITUACOES_ABERTAS)
         .map(mapper::paraDominio)
 
-    @Transactional(readOnly = true)
-    override fun comPrazoVencido(momento: LocalDateTime, limite: Int): List<Saga> = sagas
-        .comPrazoVencido(
+    override fun travarProximaVencida(momento: LocalDateTime): Saga? = sagas
+        .travarVencidas(
             SITUACOES_ABERTAS,
             momento.atZone(ZoneId.systemDefault()).toOffsetDateTime(),
-            Limit.of(limite),
+            Limit.of(1),
         )
-        .map(mapper::paraDominio)
+        .firstOrNull()
+        ?.let(mapper::paraDominio)
 
     private companion object {
         val SITUACOES_ABERTAS = SituacaoDaSaga.entries.filterNot { it.encerrada }.map { it.name }
