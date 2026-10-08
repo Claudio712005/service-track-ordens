@@ -77,12 +77,33 @@ resposta sobre o webhook em ambiente efêmero pode mudar o desenho do passo inte
 etapa agora custa uma linha; descobrir depois que a máquina de estado não tem lugar para ela
 custa retrabalho.
 
-### Consumo não tem compensação
+### Consumo não tem compensação, e por isso tem retentativa
 
 Baixar o reservado é irreversível pelo contrato do catálogo: `ConsumirReserva` não devolve
 nada, e não existe comando que desconsuma. Por isso o consumo é o **último** passo com efeito
 externo — nada que possa falhar vem depois dele. É a regra que torna a saga desenhável sem
 compensação do último passo.
+
+A consequência é que `ConsumoRecusado` não tem para onde ir: a saga termina em `FALHA`, com
+`ERROR` no log, e a OS **fica em `EM_EXECUCAO`**. Daí duas saídas, as duas pela API:
+
+1. **retentar**, depois que o estoque for reposto — `POST /ordens/{id}/saga/consumo` reabre a
+   saga, incrementa a tentativa e republica os comandos dos passos que não confirmaram;
+2. **cancelar** a OS, que é transição válida a partir de `EM_EXECUCAO`.
+
+Reabrir só vale a partir de `FALHA` e só republica o que não confirmou — o que já foi consumido
+não é pedido de novo, porque consumo repetido baixaria estoque duas vezes.
+
+### A compensação aceita uma janela de atraso
+
+A compensação libera apenas os passos que **confirmaram** antes da recusa. Um passo que ainda
+não respondeu vai para `EXPIRADO`, e se a confirmação dele chegar depois, a reserva fica presa
+até a rotina de expiração do catálogo devolvê-la — até dez minutos, pelo `expiraEm`.
+
+É escolha, não descuido. Liberar preventivamente todos os insumos da etapa fecharia a janela ao
+custo de mensagem inútil no caminho normal, e esperar o prazo da etapa antes de compensar
+atrasaria toda compensação em até dois minutos. O desenho aceita a janela porque a rede de
+segurança do catálogo já existe e não deixa a peça presa para sempre.
 
 ### Reserva parcial é falha da etapa
 
@@ -96,32 +117,43 @@ não existe é operação nula no catálogo, então errar para o lado de compens
 ## Chave de idempotência
 
 ```
-idMensagem = <ordemServicoId>:<ETAPA>:<insumoId>
+idMensagem = <ordemServicoId>:<ETAPA>:<insumoId>:<tentativa>
 ```
 
-Determinística, o que significa que a retentativa do orquestrador produz a mesma chave sem
-guardar estado extra, e legível, o que significa que uma linha de log ou uma mensagem na DLT
-diz de que OS e de que etapa ela é. Chave aleatória obrigaria a abrir o payload para descobrir
-as duas coisas.
+Determinística, o que significa que a retentativa de uma mesma tentativa produz a mesma chave
+sem guardar estado extra, e legível, o que significa que uma linha de log ou uma mensagem na
+DLT diz de que OS, de que etapa e de que tentativa ela é.
 
-**Orçamento de tamanho**, porque ele é apertado e ninguém o valida:
+**A tentativa não é enfeite.** O destino guarda `<tipo>:<idMensagem>` no INBOX e considera
+processada qualquer reentrega com a mesma chave — inclusive a recusa, que é resposta de negócio
+bem-sucedida. Retentar o consumo depois de reposição de estoque com a chave da primeira
+tentativa seria **engolido em silêncio**: o catálogo responderia "já processei" e a saga ficaria
+esperando para sempre.
+
+**Orçamento de tamanho**, porque ele é apertado e nada fora do esquema o valida:
 
 | Trecho | Teto |
 |---|---|
 | `ordemServicoId` | 36 |
 | `ETAPA` | 20 — teto da convenção, nome mais longo hoje é `LIBERACAO_DE_INSUMOS` |
 | `insumoId` | 36 |
-| separadores | 2 |
-| **chave** | **94**, que é o `maxLength` declarado no esquema |
-| prefixo do tipo, que o catálogo acrescenta ao gravar no INBOX | 26, no tipo mais longo |
-| **total gravado** | **120**, exatamente o tamanho de `INBOX.ID VARCHAR(120)` |
+| `tentativa` | 2 — teto de 99 tentativas |
+| separadores | 3 |
+| **chave** | **97** |
 
-Não há folga. Nome de etapa com mais de 20 caracteres estoura o INBOX do catálogo, e o erro
-aparece como falha de gravação no consumidor alheio, não aqui. O teto é regra, não sugestão —
-e o teste de contrato do catálogo verifica a aritmética contra a coluna real.
+O teto no esquema **depende do tipo**, porque o prefixo que o catálogo acrescenta depende dele:
 
-Para `RegistrarEntradaDeEstoque`, que é ação humana e não passo de saga, a chave continua
-sendo um UUID.
+| Tipo | Prefixo | `maxLength` |
+|---|---|---|
+| `ReservarEstoque`, `ConsumirReserva` | 16 | 104 |
+| `LiberarReserva` | 15 | 104, por uniformidade — caberiam 105 |
+| `RegistrarEntradaDeEstoque` | 26 | **94** |
+
+A entrada de estoque é ação humana, não passo de saga: a chave dela é um UUID de 36 caracteres
+e nunca se aproxima do teto. Nome de etapa com mais de 20 caracteres, porém, estoura o INBOX do
+catálogo, e o erro aparece como falha de gravação no consumidor alheio, não aqui. O teto é
+regra, não sugestão — e o teste de contrato do catálogo verifica a aritmética contra a coluna
+real, por tipo.
 
 ---
 
