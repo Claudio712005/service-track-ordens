@@ -22,6 +22,31 @@ spring:
   threads:
     virtual:
       enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    client-id: ${spring.application.name}
+    consumer:
+      group-id: ${servicetrack.messaging.group}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+    listener:
+      ack-mode: record
+      observation-enabled: true
+    template:
+      observation-enabled: true
+
+servicetrack:
+  messaging:
+    enabled: ${ST_ORD_MESSAGING_ENABLED:false}
+    group: ordens-saga
+    stock-command-topic: servicetrack.estoque.comandos.v1
+    stock-event-topic: servicetrack.estoque.eventos.v1
 
 server:
   shutdown: graceful
@@ -70,6 +95,11 @@ spring:
     username: ${ST_ORD_DB_USER:st_ord_user}
     password: ${ST_ORD_DB_PASSWORD:st_ord_local}
 
+servicetrack:
+  messaging:
+    enabled: ${ST_ORD_MESSAGING_ENABLED:true}
+
 logging:
   level:
     com.clau.service_track.ordens: DEBUG
+    org.apache.kafka: WARN
