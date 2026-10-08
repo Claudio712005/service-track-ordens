@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS SAGAS (
     TIPO VARCHAR(20) NOT NULL,
     SITUACAO VARCHAR(20) NOT NULL,
     ETAPA VARCHAR(20) NOT NULL,
+    TENTATIVA INTEGER NOT NULL DEFAULT 1,
     PRAZO_DA_ETAPA TIMESTAMPTZ(6) NOT NULL,
     MOTIVO VARCHAR(500),
     VERSAO INTEGER NOT NULL DEFAULT 0,
@@ -136,6 +137,7 @@ COMMENT ON COLUMN SAGAS.ORDEM_SERVICO_ID IS 'Identidade da saga. A chave da mens
 COMMENT ON COLUMN SAGAS.TIPO IS 'RESERVA ou CONSUMO. Sao duas sagas sequenciais na vida de uma OS, nao uma.';
 COMMENT ON COLUMN SAGAS.SITUACAO IS 'EM_CURSO, CONCLUIDA, COMPENSANDO, COMPENSADA ou FALHA. FALHA e o consumo recusado, que nao tem compensacao possivel.';
 COMMENT ON COLUMN SAGAS.ETAPA IS 'Etapa corrente, com teto de 20 caracteres: ela entra na chave de idempotencia, que o INBOX do catalogo guarda em 120 junto com o tipo da mensagem.';
+COMMENT ON COLUMN SAGAS.TENTATIVA IS 'Numero da tentativa da etapa corrente. Entra na chave de idempotencia porque retentar com a mesma chave seria engolido pelo INBOX do destino: para ele, a mensagem ja foi processada.';
 COMMENT ON COLUMN SAGAS.PRAZO_DA_ETAPA IS 'Quando esta etapa reprova por tempo. E sempre menor que o expiraEm da reserva no catalogo: o orquestrador e dono do relogio, e a expiracao de la e rede de seguranca.';
 COMMENT ON COLUMN SAGAS.VERSAO IS 'Trava otimista. Duas confirmacoes do mesmo passo chegando juntas tem de colidir aqui.';
 

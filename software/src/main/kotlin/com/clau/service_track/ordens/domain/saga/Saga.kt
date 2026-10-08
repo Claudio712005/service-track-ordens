@@ -13,6 +13,7 @@ class Saga private constructor(
     val tipo: TipoDeSaga,
     situacao: SituacaoDaSaga,
     etapa: EtapaDaSaga,
+    tentativa: Int,
     prazoDaEtapa: LocalDateTime,
     motivo: String?,
     private val passos: MutableList<PassoDaSaga>,
@@ -24,6 +25,9 @@ class Saga private constructor(
         private set
 
     var etapa: EtapaDaSaga = etapa
+        private set
+
+    var tentativa: Int = tentativa
         private set
 
     var prazoDaEtapa: LocalDateTime = prazoDaEtapa
@@ -39,6 +43,8 @@ class Saga private constructor(
 
         const val PRAZO_VENCIDO = "prazo da etapa vencido sem resposta de todos os passos"
         const val MINUTOS_DA_COMPENSACAO = 2L
+        const val PRIMEIRA_TENTATIVA = 1
+        const val TETO_DE_TENTATIVAS = 99
 
         fun abrir(
             ordemServicoId: OrdemServicoId,
@@ -57,6 +63,7 @@ class Saga private constructor(
                 tipo = tipo,
                 situacao = SituacaoDaSaga.EM_CURSO,
                 etapa = tipo.etapaInicial,
+                tentativa = PRIMEIRA_TENTATIVA,
                 prazoDaEtapa = prazoDaEtapa,
                 motivo = null,
                 passos = insumos
@@ -73,12 +80,25 @@ class Saga private constructor(
             tipo: TipoDeSaga,
             situacao: SituacaoDaSaga,
             etapa: EtapaDaSaga,
+            tentativa: Int,
             prazoDaEtapa: LocalDateTime,
             motivo: String?,
             passos: MutableList<PassoDaSaga>,
             dataCriacao: LocalDateTime,
             dataAtualizacao: LocalDateTime,
-        ) = Saga(id, ordemServicoId, tipo, situacao, etapa, prazoDaEtapa, motivo, passos, dataCriacao, dataAtualizacao)
+        ) = Saga(
+            id,
+            ordemServicoId,
+            tipo,
+            situacao,
+            etapa,
+            tentativa,
+            prazoDaEtapa,
+            motivo,
+            passos,
+            dataCriacao,
+            dataAtualizacao,
+        )
     }
 
     fun listarPassos(): List<PassoDaSaga> = passos.toList()
@@ -113,6 +133,30 @@ class Saga private constructor(
 
         pendentes.forEach { it.resolver(SituacaoDoPasso.EXPIRADO, PRAZO_VENCIDO) }
         encaminharReprovacao(PRAZO_VENCIDO, agora)
+        return true
+    }
+
+    fun reabrir(prazo: LocalDateTime): Boolean {
+        if (situacao != SituacaoDaSaga.FALHA) return false
+        if (tentativa >= TETO_DE_TENTATIVAS) {
+            throw DomainException("Saga já tentou $tentativa vezes e não será reaberta automaticamente")
+        }
+
+        val naoResolvidos = passos
+            .filter { it.etapa == etapa && it.situacao != SituacaoDoPasso.CONFIRMADO }
+            .map { it.insumoId to it.quantidade }
+
+        if (naoResolvidos.isEmpty()) return false
+
+        tentativa += 1
+        situacao = SituacaoDaSaga.EM_CURSO
+        prazoDaEtapa = prazo
+        motivo = null
+        passos.removeAll { it.etapa == etapa && it.situacao != SituacaoDoPasso.CONFIRMADO }
+        naoResolvidos.forEach { (insumoId, quantidade) ->
+            passos += PassoDaSaga.pedir(etapa, insumoId, quantidade)
+        }
+        marcarAtualizacao()
         return true
     }
 

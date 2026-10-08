@@ -31,6 +31,9 @@ class SagaEntity(
     @Column(name = "ETAPA", nullable = false, length = 20)
     var etapa: String,
 
+    @Column(name = "TENTATIVA", nullable = false)
+    var tentativa: Int,
+
     @Column(name = "PRAZO_DA_ETAPA", nullable = false)
     var prazoDaEtapa: OffsetDateTime,
 
