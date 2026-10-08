@@ -56,6 +56,8 @@ class OrquestradorDaSagaTest {
         iniciarExecucao = escrita,
         finalizar = escrita,
         cancelar = escrita,
+        historico = historico,
+        correlacao = CorrelacaoFixaAdapter("atendimento-1"),
         prazoDaEtapa = Duration.ofMinutes(2),
     )
 
@@ -251,7 +253,7 @@ class OrquestradorDaSagaTest {
     }
 
     @Test
-    fun `consumo recusado vira falha e nao cancela a OS`() {
+    fun `consumo recusado vira falha, nao cancela a OS e fica visivel no historico`() {
         val ordem = ordemAguardandoAprovacao()
         orquestrador.abrirReserva(ordem.id)
         orquestrador.confirmarPasso(ordem.id, oleo)
@@ -265,6 +267,36 @@ class OrquestradorDaSagaTest {
         assertEquals(SituacaoDaSaga.FALHA, saga.situacao)
         assertTrue(outbox.enfileiradas.isEmpty())
         assertEquals(StatusOrdemServicoEnum.EM_EXECUCAO, ordens.porId(ordem.id)!!.obterStatus())
+
+        val ultima = historico.porOrdem(ordem.id).last()
+        assertFalse(ultima.transicionou, "bloqueio nao muda o estado da OS")
+        assertEquals(StatusOrdemServicoEnum.EM_EXECUCAO, ultima.statusNovo)
+        assertTrue(ultima.motivo!!.contains("bloqueada"))
+        assertTrue(ultima.motivo!!.contains("CONSUMO_DE_INSUMOS"))
+        assertTrue(ultima.motivo!!.contains("reserva inexistente ou ja consumida"))
+        assertEquals("atendimento-1", ultima.correlationId)
+    }
+
+    @Test
+    fun `bloqueio nao suja a regua de estados, porque e filtravel`() {
+        val ordem = ordemAguardandoAprovacao()
+        orquestrador.abrirReserva(ordem.id)
+        orquestrador.confirmarPasso(ordem.id, oleo)
+        orquestrador.confirmarPasso(ordem.id, filtro)
+        orquestrador.abrirConsumo(ordem.id)
+        orquestrador.recusarPasso(ordem.id, oleo, "sem saldo")
+
+        val trilha = historico.porOrdem(ordem.id)
+
+        assertEquals(1, trilha.count { !it.transicionou })
+        assertTrue(trilha.filter { it.transicionou }.map { it.statusNovo }.containsAll(
+            listOf(
+                StatusOrdemServicoEnum.RECEBIDA,
+                StatusOrdemServicoEnum.EM_DIAGNOSTICO,
+                StatusOrdemServicoEnum.AGUARDANDO_APROVACAO,
+                StatusOrdemServicoEnum.EM_EXECUCAO,
+            )
+        ))
     }
 
     @Test

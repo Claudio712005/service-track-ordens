@@ -47,6 +47,8 @@ class OrdemServicoApiControllerTest {
         iniciarExecucao = escrita,
         finalizar = escrita,
         cancelar = escrita,
+        historico = historico,
+        correlacao = CorrelacaoFixaAdapter("atendimento-1"),
         prazoDaEtapa = java.time.Duration.ofMinutes(2),
     )
 
