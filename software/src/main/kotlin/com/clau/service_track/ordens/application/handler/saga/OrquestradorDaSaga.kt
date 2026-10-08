@@ -63,12 +63,11 @@ open class OrquestradorDaSaga(
         return aplicar(ordemServicoId) { it.expirar(insumoId, motivo) }
     }
 
-    @Transactional(readOnly = true)
-    open fun comPrazoVencido(limite: Int): List<Saga> = sagas.comPrazoVencido(LocalDateTime.now(), limite)
-
     @Transactional
-    open fun reprovarPorPrazo(saga: Saga): Boolean {
+    open fun reprovarProximaVencida(): Boolean {
         val agora = LocalDateTime.now()
+        val saga = sagas.travarProximaVencida(agora) ?: return false
+
         if (!saga.reprovarPorPrazo(agora)) return false
 
         log.warn(
@@ -84,6 +83,16 @@ open class OrquestradorDaSaga(
 
     private fun abrir(ordemServicoId: OrdemServicoId, tipo: TipoDeSaga): Saga {
         sagas.porOrdemETipo(ordemServicoId, tipo)?.let { existente ->
+            if (existente.reabrir(LocalDateTime.now().plus(prazoDaEtapa))) {
+                val reaberta = sagas.salvar(existente)
+                publicar(reaberta)
+                log.warn(
+                    "saga reaberta ordemServicoId={} tipo={} tentativa={} passos={}",
+                    ordemServicoId.valor, tipo, reaberta.tentativa, reaberta.passosPendentes().size,
+                )
+                return reaberta
+            }
+
             log.info(
                 "saga ja existe, reaproveitada ordemServicoId={} tipo={} situacao={}",
                 ordemServicoId.valor, tipo, existente.situacao,
