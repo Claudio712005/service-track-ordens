@@ -19,10 +19,12 @@ import org.springframework.web.bind.annotation.RequestMapping
 interface SagaApiPort {
 
     @Operation(
-        summary = "Abre a saga de reserva de insumos",
-        description = "Chamada depois da aprovação do orçamento. Publica um `ReservarEstoque` por insumo e, " +
-            "quando todos confirmarem, leva a OS para EM_EXECUCAO. Uma recusa entre eles libera as reservas " +
-            "que deram certo e cancela a OS. Idempotente: chamar duas vezes devolve a saga existente."
+        summary = "Reabre a saga de reserva de insumos",
+        description = "No caminho normal quem abre esta saga é `POST /ordens/{id}/orcamento/aprovacao`. " +
+            "Esta rota serve para **retentar** depois de uma falha: chamar com a saga em andamento ou já " +
+            "encerrada com sucesso devolve a existente sem republicar nada; com a saga em FALHA, incrementa " +
+            "a tentativa e republica só os passos que não confirmaram. A tentativa entra na chave de " +
+            "idempotência, senão o destino trataria a retentativa como mensagem repetida e a engoliria."
     )
     @ApiResponse(responseCode = "200", description = "Saga aberta ou já existente")
     @ApiResponse(responseCode = "404", description = "Ordem inexistente", content = [])
@@ -31,10 +33,12 @@ interface SagaApiPort {
     fun abrirReserva(@PathVariable id: String): ResponseEntity<SagaResponse>
 
     @Operation(
-        summary = "Abre a saga de consumo de insumos",
-        description = "Chamada no pedido de finalização. Publica um `ConsumirReserva` por insumo e, quando " +
-            "todos confirmarem, leva a OS para FINALIZADA. **Não tem compensação**: baixar o reservado é " +
-            "irreversível pelo contrato do catálogo, e por isso o consumo é o último passo com efeito externo."
+        summary = "Reabre a saga de consumo de insumos",
+        description = "No caminho normal quem abre esta saga é `POST /ordens/{id}/finalizacao`. **Não tem " +
+            "compensação**: baixar o reservado é irreversível pelo contrato do catálogo, e por isso o consumo " +
+            "é o último passo com efeito externo. É esta rota que retenta o consumo depois de reposição de " +
+            "estoque: a saga em FALHA é reaberta com tentativa nova, e o que já foi consumido não é pedido " +
+            "de novo."
     )
     @PostMapping("/consumo")
     fun abrirConsumo(@PathVariable id: String): ResponseEntity<SagaResponse>
