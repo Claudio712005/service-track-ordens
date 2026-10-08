@@ -11,4 +11,8 @@ data class TransicaoDeStatus(
     val motivo: String?,
     val correlationId: String?,
     val ocorridoEm: OffsetDateTime,
-)
+) {
+
+    val transicionou: Boolean
+        get() = statusAnterior != statusNovo
+}

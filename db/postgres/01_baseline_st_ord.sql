@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS HISTORICO_STATUS (
     CONSTRAINT FK_HISTORICO_STATUS_ORDEM FOREIGN KEY (ORDEM_SERVICO_ID) REFERENCES ORDENS_SERVICO (ID) ON DELETE CASCADE
 );
 
-COMMENT ON TABLE HISTORICO_STATUS IS 'Uma linha por transicao de estado da OS. O enum guarda onde a OS esta; esta tabela guarda por onde passou, que e o que o cliente e a auditoria perguntam.';
+COMMENT ON TABLE HISTORICO_STATUS IS 'Linha do tempo da OS. O enum guarda onde ela esta; esta tabela guarda por onde passou e o que aconteceu no caminho. Linha com STATUS_ANTERIOR igual a STATUS_NOVO e fato relevante sem transicao: hoje, ordem bloqueada esperando reposicao de insumo. Sem isso o bloqueio viveria so num ERROR de log, onde nem o atendente nem o cliente olham.';
 COMMENT ON COLUMN HISTORICO_STATUS.STATUS_ANTERIOR IS 'Nulo na abertura da OS, que nao vem de transicao.';
 COMMENT ON COLUMN HISTORICO_STATUS.MOTIVO IS 'Por que a transicao aconteceu. Em cancelamento por compensacao da saga, e aqui que fica a recusa do estoque.';
 COMMENT ON COLUMN HISTORICO_STATUS.CORRELATION_ID IS 'Correlacao da operacao que causou a transicao. Liga a linha do historico ao log e ao trace daquela requisicao.';
