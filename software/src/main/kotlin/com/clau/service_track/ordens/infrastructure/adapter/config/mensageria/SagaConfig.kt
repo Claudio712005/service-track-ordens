@@ -1,6 +1,8 @@
 package com.clau.service_track.ordens.infrastructure.adapter.config.mensageria
 
+import com.clau.service_track.ordens.application.handler.ordemservico.FluxoDaOrdemServico
 import com.clau.service_track.ordens.application.handler.saga.OrquestradorDaSaga
+import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.AprovarOrcamentoUseCase
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.CancelarOrdemServicoUseCase
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.FinalizarOrdemServicoUseCase
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.IniciarExecucaoUseCase
@@ -33,5 +35,20 @@ class SagaConfig {
         finalizar = finalizar,
         cancelar = cancelar,
         prazoDaEtapa = propriedades.saga.stepDeadline,
+    )
+
+    @Bean
+    fun fluxoDaOrdemServico(
+        ordens: OrdemServicoRepositoryPort,
+        aprovar: AprovarOrcamentoUseCase,
+        iniciarExecucao: IniciarExecucaoUseCase,
+        finalizar: FinalizarOrdemServicoUseCase,
+        orquestrador: OrquestradorDaSaga,
+    ) = FluxoDaOrdemServico(
+        ordens = ordens,
+        aprovar = aprovar,
+        iniciarExecucao = iniciarExecucao,
+        finalizar = finalizar,
+        orquestrador = orquestrador,
     )
 }

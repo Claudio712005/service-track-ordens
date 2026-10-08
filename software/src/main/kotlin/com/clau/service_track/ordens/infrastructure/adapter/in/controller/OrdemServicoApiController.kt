@@ -18,8 +18,7 @@ import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.AdicionarInsumoUseCase
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.AdicionarServicoCommand
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.AdicionarServicoUseCase
-import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.AprovarOrcamentoCommand
-import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.AprovarOrcamentoUseCase
+import com.clau.service_track.ordens.application.handler.ordemservico.FluxoDaOrdemServico
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.CancelarOrdemServicoCommand
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.CancelarOrdemServicoUseCase
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.ConcluirItemServicoCommand
@@ -31,8 +30,6 @@ import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.DefinirPrazoUseCase
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.EntregarOrdemServicoCommand
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.EntregarOrdemServicoUseCase
-import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.FinalizarOrdemServicoCommand
-import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.FinalizarOrdemServicoUseCase
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.GerarOrcamentoCommand
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.GerarOrcamentoUseCase
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.IniciarDiagnosticoCommand
@@ -77,11 +74,10 @@ class OrdemServicoApiController(
     private val adicionarServicoUseCase: AdicionarServicoUseCase,
     private val removerServicoUseCase: RemoverServicoUseCase,
     private val gerarOrcamentoUseCase: GerarOrcamentoUseCase,
-    private val aprovarOrcamentoUseCase: AprovarOrcamentoUseCase,
+    private val fluxo: FluxoDaOrdemServico,
     private val reprovarOrcamentoUseCase: ReprovarOrcamentoUseCase,
     private val iniciarExecucaoUseCase: IniciarExecucaoUseCase,
     private val concluirItemServicoUseCase: ConcluirItemServicoUseCase,
-    private val finalizarUseCase: FinalizarOrdemServicoUseCase,
     private val entregarUseCase: EntregarOrdemServicoUseCase,
     private val cancelarUseCase: CancelarOrdemServicoUseCase,
     private val definirPrazoUseCase: DefinirPrazoUseCase,
@@ -166,7 +162,7 @@ class OrdemServicoApiController(
         )
 
     override fun aprovarOrcamento(id: String): ResponseEntity<OrdemServicoResponse> =
-        ok(aprovarOrcamentoUseCase.executar(AprovarOrcamentoCommand(ordem(id))))
+        ok(fluxo.aprovarOrcamento(ordem(id)))
 
     override fun reprovarOrcamento(id: String, requisicao: ReprovarOrcamentoRequest): ResponseEntity<OrdemServicoResponse> =
         ok(reprovarOrcamentoUseCase.executar(ReprovarOrcamentoCommand(ordem(id), requisicao.motivo)))
@@ -190,7 +186,7 @@ class OrdemServicoApiController(
     )
 
     override fun finalizar(id: String): ResponseEntity<OrdemServicoResponse> =
-        ok(finalizarUseCase.executar(FinalizarOrdemServicoCommand(ordem(id))))
+        ok(fluxo.pedirFinalizacao(ordem(id)))
 
     override fun entregar(id: String): ResponseEntity<OrdemServicoResponse> =
         ok(entregarUseCase.executar(EntregarOrdemServicoCommand(ordem(id))))
