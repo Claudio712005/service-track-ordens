@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: service-track-ordens
+
+resources:
+  - ../../base
+
+components:
+  - ../../componentes/postgres-efemero
+  - ../../componentes/kafka-efemero
+  - ../../componentes/nodeport
+
+patches:
+  - path: hpa-patch.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: service-track-ordens-config
+    literals:
+      - ST_ORD_DB_URL=jdbc:postgresql://service-track-ordens-postgres:5432/st_ord
+      - ST_ORD_DB_USER=st_ord_user
+      - ST_ORD_DB_PASSWORD=st_ord_local
+      - ST_ORD_MESSAGING_ENABLED=true
+      - KAFKA_BOOTSTRAP_SERVERS=service-track-ordens-kafka:9092
+      - OTEL_JAVAAGENT_ENABLED=false
