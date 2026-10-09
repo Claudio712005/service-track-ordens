@@ -183,16 +183,19 @@ colidir com o do catálogo.
 
 ---
 
-## O que ainda não existe
+## Contrato da saga
 
-- **Dockerfile, `k8s/`, `infra/terraform` e as esteiras.**
-- **Passo de cobrança da saga**: declarado no contrato e vazio, porque a `GLOBAL-RFC-011` não
-  fechou.
-- **`oauth2-resource-server`**: ausente de propósito. Sem issuer configurado ele trancaria tudo;
-  entra junto com a decisão de quais rotas protege.
-- **Contratos de evento em JSON Schema**, adotando verbatim o esquema que o `catalogo` já
-  consome — o consumidor dele existe, testado, e divergir custa retrabalho em código que
-  funciona.
+Escrito antes do código, de propósito: a saga atravessa três serviços e um contrato descoberto
+durante a implementação já nasce com um consumidor dependendo dele.
+
+- [`docs/saga/saga-da-ordem-de-servico.md`](docs/saga/saga-da-ordem-de-servico.md) — etapas,
+  compensação, hierarquia dos prazos e chave de idempotência.
+- [`docs/contratos/`](docs/contratos/) — JSON Schema dos comandos que este serviço publica e
+  dos eventos que consome.
+
+Os esquemas do estoque foram adotados **verbatim** do `service-track-catalogo`: o consumidor
+dele já existe e está testado, e divergir custaria retrabalho em código que funciona. O que
+mudou do original, e mudou porque a saga exigiu, está registrado na `GLOBAL-ADR-010`.
 
 ---
 

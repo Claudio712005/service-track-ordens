@@ -1,0 +1,216 @@
+# Saga da ordem de serviço
+
+## Data
+06/10/2026
+
+Contrato da transação distribuída que a Fase 4 exige. A decisão que o sustenta é a
+`GLOBAL-ADR-010`, que atravessa repositórios e por isso vive fora deste.
+Este serviço é o **orquestrador** (`GLOBAL-ADR-007`): ele é dono do estado da OS e de em que
+etapa da saga ela está.
+
+Esquemas do contrato: [`../contratos/estoque/`](../contratos/estoque/).
+
+---
+
+## Onde a saga encaixa na máquina de estado
+
+A máquina de estado da OS já existia no monólito e **não muda** por causa da saga. O que a
+saga faz é ocupar o intervalo entre duas transições, enquanto outros serviços respondem.
+
+```mermaid
+stateDiagram-v2
+    [*] --> RECEBIDA
+    RECEBIDA --> EM_DIAGNOSTICO
+    EM_DIAGNOSTICO --> AGUARDANDO_APROVACAO : orçamento gerado
+    AGUARDANDO_APROVACAO --> EM_EXECUCAO : saga de reserva concluída
+    AGUARDANDO_APROVACAO --> CANCELADA : reserva recusada ou prazo vencido
+    EM_EXECUCAO --> FINALIZADA : saga de consumo concluída
+    FINALIZADA --> ENTREGUE
+    EM_DIAGNOSTICO --> CANCELADA
+    EM_EXECUCAO --> CANCELADA
+```
+
+Duas sagas, não uma:
+
+| Saga | Abre em | Fecha em |
+|---|---|---|
+| **reserva** | aprovação do orçamento | `EM_EXECUCAO` ou `CANCELADA` |
+| **consumo** | pedido de finalização | `FINALIZADA` ou volta a `EM_EXECUCAO` |
+
+**O estado só avança quando a saga confirma.** Enquanto a reserva está em curso a OS continua
+em `AGUARDANDO_APROVACAO`, e não existe estado intermediário visível ao cliente — o progresso
+da saga vive em tabela própria do orquestrador, não no enum da OS. Inventar
+`AGUARDANDO_RESERVA` poluiria o domínio com detalhe de infraestrutura.
+
+> **Consequência para o agregado:** `aprovarOrcamento()` aprovava o orçamento **e**
+> transicionava para `EM_EXECUCAO` numa chamada. A saga precisa dos dois passos separados, então
+> a aprovação passa a só aprovar e `iniciarExecucao()` nasce para a confirmação. `finalizar()`
+> **não** precisa mudar: já é transição pura, e quem decide quando chamá-lo é a aplicação. É a
+> única mudança que este contrato impõe ao agregado.
+
+---
+
+## Identidade da saga
+
+**O identificador da saga é o `ordemServicoId`.** Não há segundo identificador.
+
+Três coisas dependem disso e seriam separadas sem ele: a chave da mensagem no broker (que
+preserva a ordem entre passos da mesma OS), a chave de idempotência dos comandos, e a consulta
+do operador, que chega sabendo o número da OS e nada mais.
+
+Uma OS tem no máximo uma saga em curso. Reabrir a mesma etapa reutiliza a mesma identidade — é
+o que torna a reentrega inofensiva.
+
+---
+
+## Etapas
+
+| Etapa | Comando publicado | Serviço | Sucesso | Falha | Compensação |
+|---|---|---|---|---|---|
+| `RESERVA_DE_INSUMOS` | `ReservarEstoque`, um por insumo | catálogo | `EstoqueReservado` | `ReservaRecusada` | `LIBERACAO_DE_INSUMOS` |
+| `COBRANCA` | **a definir** — `GLOBAL-RFC-011` | checkout | — | — | `ESTORNO_DA_COBRANCA` |
+| `CONSUMO_DE_INSUMOS` | `ConsumirReserva`, um por insumo | catálogo | `EstoqueConsumido` | `ConsumoRecusado` | nenhuma |
+| `LIBERACAO_DE_INSUMOS` | `LiberarReserva`, um por insumo reservado | catálogo | `ReservaLiberada` | — | — |
+
+`COBRANCA` está declarada e **vazia de propósito**. A `GLOBAL-RFC-011` ainda não fechou e a
+resposta sobre o webhook em ambiente efêmero pode mudar o desenho do passo inteiro. Declarar a
+etapa agora custa uma linha; descobrir depois que a máquina de estado não tem lugar para ela
+custa retrabalho.
+
+### Consumo não tem compensação, e por isso tem retentativa
+
+Baixar o reservado é irreversível pelo contrato do catálogo: `ConsumirReserva` não devolve
+nada, e não existe comando que desconsuma. Por isso o consumo é o **último** passo com efeito
+externo — nada que possa falhar vem depois dele. É a regra que torna a saga desenhável sem
+compensação do último passo.
+
+A consequência é que `ConsumoRecusado` não tem para onde ir: a saga termina em `FALHA`, com
+`ERROR` no log, e a OS **fica em `EM_EXECUCAO`**. Daí duas saídas, as duas pela API:
+
+1. **retentar**, depois que o estoque for reposto — `POST /ordens/{id}/saga/consumo` reabre a
+   saga, incrementa a tentativa e republica os comandos dos passos que não confirmaram;
+2. **cancelar** a OS, que é transição válida a partir de `EM_EXECUCAO`.
+
+Reabrir só vale a partir de `FALHA` e só republica o que não confirmou — o que já foi consumido
+não é pedido de novo, porque consumo repetido baixaria estoque duas vezes.
+
+### A compensação aceita uma janela de atraso
+
+A compensação libera apenas os passos que **confirmaram** antes da recusa. Um passo que ainda
+não respondeu vai para `EXPIRADO`, e se a confirmação dele chegar depois, a reserva fica presa
+até a rotina de expiração do catálogo devolvê-la — até dez minutos, pelo `expiraEm`.
+
+É escolha, não descuido. Liberar preventivamente todos os insumos da etapa fecharia a janela ao
+custo de mensagem inútil no caminho normal, e esperar o prazo da etapa antes de compensar
+atrasaria toda compensação em até dois minutos. O desenho aceita a janela porque a rede de
+segurança do catálogo já existe e não deixa a peça presa para sempre.
+
+### Reserva parcial é falha da etapa
+
+Uma etapa de reserva com cinco insumos só é bem-sucedida com cinco `EstoqueReservado`. Um
+`ReservaRecusada` entre eles reprova a etapa inteira, e a compensação libera **as reservas que
+deram certo** — não as recusadas, que nunca existiram. `LiberarReserva` para uma reserva que
+não existe é operação nula no catálogo, então errar para o lado de compensar a mais é seguro.
+
+---
+
+## Chave de idempotência
+
+```
+idMensagem = <ordemServicoId>:<ETAPA>:<insumoId>:<tentativa>
+```
+
+Determinística, o que significa que a retentativa de uma mesma tentativa produz a mesma chave
+sem guardar estado extra, e legível, o que significa que uma linha de log ou uma mensagem na
+DLT diz de que OS, de que etapa e de que tentativa ela é.
+
+**A tentativa não é enfeite.** O destino guarda `<tipo>:<idMensagem>` no INBOX e considera
+processada qualquer reentrega com a mesma chave — inclusive a recusa, que é resposta de negócio
+bem-sucedida. Retentar o consumo depois de reposição de estoque com a chave da primeira
+tentativa seria **engolido em silêncio**: o catálogo responderia "já processei" e a saga ficaria
+esperando para sempre.
+
+**Orçamento de tamanho**, porque ele é apertado e nada fora do esquema o valida:
+
+| Trecho | Teto |
+|---|---|
+| `ordemServicoId` | 36 |
+| `ETAPA` | 20 — teto da convenção, nome mais longo hoje é `LIBERACAO_DE_INSUMOS` |
+| `insumoId` | 36 |
+| `tentativa` | 2 — teto de 99 tentativas |
+| separadores | 3 |
+| **chave** | **97** |
+
+O teto no esquema **depende do tipo**, porque o prefixo que o catálogo acrescenta depende dele:
+
+| Tipo | Prefixo | `maxLength` |
+|---|---|---|
+| `ReservarEstoque`, `ConsumirReserva` | 16 | 104 |
+| `LiberarReserva` | 15 | 104, por uniformidade — caberiam 105 |
+| `RegistrarEntradaDeEstoque` | 26 | **94** |
+
+A entrada de estoque é ação humana, não passo de saga: a chave dela é um UUID de 36 caracteres
+e nunca se aproxima do teto. Nome de etapa com mais de 20 caracteres, porém, estoura o INBOX do
+catálogo, e o erro aparece como falha de gravação no consumidor alheio, não aqui. O teto é
+regra, não sugestão — e o teste de contrato do catálogo verifica a aritmética contra a coluna
+real, por tipo.
+
+---
+
+## Prazos: quem é dono do relógio
+
+Dois temporizadores existem e **brigariam** se ninguém decidisse a hierarquia: o catálogo
+expira reserva por conta própria, e o orquestrador tem prazo de etapa.
+
+**O orquestrador é dono do relógio.** Toda `ReservarEstoque` carrega `expiraEm` — o campo
+passou a ser obrigatório no contrato por isso — e vale sempre:
+
+```
+prazo do passo da saga  <  expiraEm da reserva
+```
+
+| Relógio | Valor | Papel |
+|---|---|---|
+| prazo do passo | 2 min | é o que reprova a etapa e dispara a compensação |
+| `expiraEm` da reserva | 10 min | rede de segurança do catálogo para saga abandonada |
+| rotina de expiração do catálogo | a cada 60 s | varre o que venceu |
+
+Com essa ordem, o caminho normal é sempre a compensação explícita; a expiração do catálogo só
+age quando o orquestrador morreu e não vai voltar — exatamente o caso em que a peça ficaria
+presa para sempre.
+
+### `ReservaExpirada` que a saga não pediu
+
+Chega sem comando correspondente. O orquestrador trata pelo estado da etapa:
+
+| Estado da etapa quando o evento chega | Ação |
+|---|---|
+| em curso ou reprovada | trata como falha do passo e compensa o resto; a reserva expirada já voltou ao estoque |
+| concluída com sucesso | registra em `WARN` e ignora — significa que o prazo foi mal dimensionado |
+| OS já `CANCELADA` ou `ENTREGUE` | registra em `INFO` e ignora |
+
+Ignorar com log é diferente de ignorar em silêncio: `ReservaExpirada` em etapa concluída é
+sintoma de prazo errado, e some se não for registrado.
+
+---
+
+## Rastreio
+
+O `traceparent` no **cabeçalho** da mensagem é o trace canônico, e atravessa a fila sem código
+nosso (`GLOBAL-ADR-007`, corrigido em 06/10/2026). O campo `traceId` do envelope continua no
+contrato como redundância de depuração e **não participa** da correlação de spans — quem ler
+só ele vê dois traces desconexos.
+
+Uma lacuna conhecida: a OUTBOX publica em rotina agendada, fora do span que originou o evento,
+então o consumidor entra num trace vizinho em vez de no mesmo. Fechar isso exige guardar o
+`traceparent` inteiro na OUTBOX e restaurá-lo na publicação. Decidido em `GLOBAL-ADR-010`,
+implementado na etapa 4.
+
+---
+
+## Gatilho de falha para a demonstração
+
+O vídeo tem de mostrar a saga **tratando falha**, e provocar falha real em ambiente ao vivo é
+frágil. Um insumo de SKU reservado no seed do catálogo recusa toda reserva, sempre. Abrir uma
+OS com ele é o roteiro da compensação, e não depende de mexer em infraestrutura durante a
+gravação. Implementado na etapa 4, junto do BDD.
