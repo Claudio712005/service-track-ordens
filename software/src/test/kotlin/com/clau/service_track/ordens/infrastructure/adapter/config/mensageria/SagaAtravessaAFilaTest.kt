@@ -166,6 +166,16 @@ class SagaAtravessaAFilaTest {
 
             assertTrue(comando.value().contains(ordem.id.valor))
             assertTrue(comando.value().contains("expiraEm"))
+
+            val chave = "${ordem.id.valor}:RESERVA_DE_INSUMOS:${oleo.valor}:1"
+            assertTrue(
+                comando.value().contains(chave),
+                "a chave de idempotencia publicada precisa dizer ordem, etapa, insumo e tentativa",
+            )
+            assertTrue(
+                "ReservarEstoque:$chave".length <= 120,
+                "chave de ${chave.length} com o prefixo do tipo nao cabe no INBOX do catalogo",
+            )
         }
     }
 

@@ -27,19 +27,15 @@ class AgendaDeMensageria(
 
     @Scheduled(fixedDelayString = "\${servicetrack.messaging.saga.deadline-sweep-interval:30s}")
     fun varrerPrazos() {
-        val vencidas = runCatching { orquestrador.comPrazoVencido(propriedades.saga.deadlineBatch) }
-            .onFailure { log.warn("leitura de saga vencida falhou, sera retentada motivo={}", it.message) }
-            .getOrDefault(emptyList())
+        var reprovadas = 0
 
-        val reprovadas = vencidas.count { saga ->
-            runCatching { orquestrador.reprovarPorPrazo(saga) }
-                .onFailure {
-                    log.warn(
-                        "reprovacao por prazo falhou ordemServicoId={} motivo={}",
-                        saga.ordemServicoId.valor, it.message,
-                    )
-                }
+        while (reprovadas < propriedades.saga.deadlineBatch) {
+            val reprovou = runCatching { orquestrador.reprovarProximaVencida() }
+                .onFailure { log.warn("reprovacao por prazo falhou, sera retentada motivo={}", it.message) }
                 .getOrDefault(false)
+
+            if (!reprovou) break
+            reprovadas++
         }
 
         if (reprovadas > 0) log.info("sagas reprovadas por prazo quantidade={}", reprovadas)

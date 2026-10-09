@@ -9,8 +9,11 @@ import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.
 import com.clau.service_track.ordens.application.port.`in`.useCase.ordemservico.IniciarExecucaoUseCase
 import com.clau.service_track.ordens.application.port.out.mensageria.FabricaDeComandoDeEstoquePort
 import com.clau.service_track.ordens.application.port.out.mensageria.OutboxPort
+import com.clau.service_track.ordens.application.port.out.CorrelacaoPort
+import com.clau.service_track.ordens.application.port.out.repository.HistoricoStatusRepositoryPort
 import com.clau.service_track.ordens.application.port.out.repository.OrdemServicoRepositoryPort
 import com.clau.service_track.ordens.application.port.out.repository.SagaRepositoryPort
+import com.clau.service_track.ordens.application.port.out.repository.TransicaoDeStatus
 import com.clau.service_track.ordens.domain.DomainException
 import com.clau.service_track.ordens.domain.ordemservico.vo.OrdemServicoId
 import com.clau.service_track.ordens.domain.referencia.InsumoId
@@ -19,6 +22,8 @@ import com.clau.service_track.ordens.domain.saga.SituacaoDaSaga
 import com.clau.service_track.ordens.domain.saga.TipoDeSaga
 import java.time.Duration
 import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import org.slf4j.LoggerFactory
 import org.springframework.transaction.annotation.Transactional
 
@@ -30,6 +35,8 @@ open class OrquestradorDaSaga(
     private val iniciarExecucao: IniciarExecucaoUseCase,
     private val finalizar: FinalizarOrdemServicoUseCase,
     private val cancelar: CancelarOrdemServicoUseCase,
+    private val historico: HistoricoStatusRepositoryPort,
+    private val correlacao: CorrelacaoPort,
     private val prazoDaEtapa: Duration,
 ) {
 
@@ -63,12 +70,11 @@ open class OrquestradorDaSaga(
         return aplicar(ordemServicoId) { it.expirar(insumoId, motivo) }
     }
 
-    @Transactional(readOnly = true)
-    open fun comPrazoVencido(limite: Int): List<Saga> = sagas.comPrazoVencido(LocalDateTime.now(), limite)
-
     @Transactional
-    open fun reprovarPorPrazo(saga: Saga): Boolean {
+    open fun reprovarProximaVencida(): Boolean {
         val agora = LocalDateTime.now()
+        val saga = sagas.travarProximaVencida(agora) ?: return false
+
         if (!saga.reprovarPorPrazo(agora)) return false
 
         log.warn(
@@ -84,6 +90,16 @@ open class OrquestradorDaSaga(
 
     private fun abrir(ordemServicoId: OrdemServicoId, tipo: TipoDeSaga): Saga {
         sagas.porOrdemETipo(ordemServicoId, tipo)?.let { existente ->
+            if (existente.reabrir(LocalDateTime.now().plus(prazoDaEtapa))) {
+                val reaberta = sagas.salvar(existente)
+                publicar(reaberta)
+                log.warn(
+                    "saga reaberta ordemServicoId={} tipo={} tentativa={} passos={}",
+                    ordemServicoId.valor, tipo, reaberta.tentativa, reaberta.passosPendentes().size,
+                )
+                return reaberta
+            }
+
             log.info(
                 "saga ja existe, reaproveitada ordemServicoId={} tipo={} situacao={}",
                 ordemServicoId.valor, tipo, existente.situacao,
@@ -137,10 +153,7 @@ open class OrquestradorDaSaga(
         when (saga.situacao) {
             SituacaoDaSaga.CONCLUIDA -> concluir(saga)
             SituacaoDaSaga.COMPENSADA -> cancelarPorCompensacao(saga)
-            SituacaoDaSaga.FALHA -> log.error(
-                "saga em falha sem compensacao possivel ordemServicoId={} tipo={} motivo={}",
-                saga.ordemServicoId.valor, saga.tipo, saga.motivo,
-            )
+            SituacaoDaSaga.FALHA -> registrarBloqueio(saga)
 
             else -> Unit
         }
@@ -164,6 +177,27 @@ open class OrquestradorDaSaga(
         log.warn(
             "saga compensada e ordem cancelada ordemServicoId={} motivo={}",
             saga.ordemServicoId.valor, saga.motivo,
+        )
+    }
+
+    private fun registrarBloqueio(saga: Saga) {
+        log.error(
+            "saga em falha sem compensacao possivel ordemServicoId={} tipo={} tentativa={} motivo={}",
+            saga.ordemServicoId.valor, saga.tipo, saga.tentativa, saga.motivo,
+        )
+
+        val estado = ordens.porId(saga.ordemServicoId)?.obterStatus() ?: return
+
+        historico.registrar(
+            TransicaoDeStatus(
+                ordemServicoId = saga.ordemServicoId,
+                statusAnterior = estado,
+                statusNovo = estado,
+                motivo = "ordem bloqueada na etapa ${saga.etapa.name}, tentativa ${saga.tentativa}: " +
+                    (saga.motivo ?: "sem motivo informado pelo serviço de destino"),
+                correlationId = correlacao.correlacaoAtual(),
+                ocorridoEm = OffsetDateTime.now(ZoneOffset.UTC),
+            )
         )
     }
 

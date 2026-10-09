@@ -27,6 +27,7 @@ class SagaMapper {
         tipo = TipoDeSaga.valueOf(entidade.tipo),
         situacao = SituacaoDaSaga.de(entidade.situacao),
         etapa = EtapaDaSaga.de(entidade.etapa),
+        tentativa = entidade.tentativa,
         prazoDaEtapa = paraLocal(entidade.prazoDaEtapa),
         motivo = entidade.motivo,
         passos = entidade.passos.map(::paraDominio).toMutableList(),
@@ -41,6 +42,7 @@ class SagaMapper {
             tipo = saga.tipo.name,
             situacao = saga.situacao.name,
             etapa = saga.etapa.name,
+            tentativa = saga.tentativa,
             prazoDaEtapa = paraOffset(saga.prazoDaEtapa),
             dataCriacao = paraOffset(saga.dataCriacao),
             dataAtualizacao = paraOffset(saga.dataAtualizacao),
@@ -48,6 +50,7 @@ class SagaMapper {
 
         entidade.situacao = saga.situacao.name
         entidade.etapa = saga.etapa.name
+        entidade.tentativa = saga.tentativa
         entidade.prazoDaEtapa = paraOffset(saga.prazoDaEtapa)
         entidade.motivo = saga.motivo
         entidade.dataAtualizacao = paraOffset(saga.dataAtualizacao)

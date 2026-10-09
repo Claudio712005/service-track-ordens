@@ -235,6 +235,35 @@ class OrdemServicoRepositoryPostgresAdapterTest {
     }
 
     @Test
+    fun `linha sem transicao sobrevive ao banco e se distingue das transicoes`() {
+        val ordem = nova()
+        ordens.salvar(ordem)
+        val agora = OffsetDateTime.now(ZoneOffset.UTC)
+
+        historico.registrar(
+            TransicaoDeStatus(ordem.id, null, StatusOrdemServicoEnum.RECEBIDA, "abertura", "corr-1", agora)
+        )
+        historico.registrar(
+            TransicaoDeStatus(
+                ordem.id,
+                StatusOrdemServicoEnum.EM_EXECUCAO,
+                StatusOrdemServicoEnum.EM_EXECUCAO,
+                "ordem bloqueada na etapa CONSUMO_DE_INSUMOS, tentativa 1: sem saldo",
+                "corr-2",
+                agora.plusMinutes(5),
+            )
+        )
+
+        val trilha = historico.porOrdem(ordem.id)
+
+        assertEquals(2, trilha.size)
+        assertTrue(trilha.first().transicionou)
+        assertTrue(!trilha.last().transicionou, "anterior igual a novo e fato sem transicao")
+        assertEquals(StatusOrdemServicoEnum.EM_EXECUCAO, trilha.last().statusAnterior)
+        assertTrue(trilha.last().motivo!!.contains("bloqueada"))
+    }
+
+    @Test
     fun `historico de outra ordem nao aparece`() {
         val ordem = nova()
         ordens.salvar(ordem)

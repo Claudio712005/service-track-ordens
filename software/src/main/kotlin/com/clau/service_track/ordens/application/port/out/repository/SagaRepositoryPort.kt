@@ -13,5 +13,5 @@ interface SagaRepositoryPort {
 
     fun emCursoPorOrdem(ordemServicoId: OrdemServicoId): List<Saga>
 
-    fun comPrazoVencido(momento: LocalDateTime, limite: Int): List<Saga>
+    fun travarProximaVencida(momento: LocalDateTime): Saga?
 }

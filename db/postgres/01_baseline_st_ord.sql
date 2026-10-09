@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS HISTORICO_STATUS (
     CONSTRAINT FK_HISTORICO_STATUS_ORDEM FOREIGN KEY (ORDEM_SERVICO_ID) REFERENCES ORDENS_SERVICO (ID) ON DELETE CASCADE
 );
 
-COMMENT ON TABLE HISTORICO_STATUS IS 'Uma linha por transicao de estado da OS. O enum guarda onde a OS esta; esta tabela guarda por onde passou, que e o que o cliente e a auditoria perguntam.';
+COMMENT ON TABLE HISTORICO_STATUS IS 'Linha do tempo da OS. O enum guarda onde ela esta; esta tabela guarda por onde passou e o que aconteceu no caminho. Linha com STATUS_ANTERIOR igual a STATUS_NOVO e fato relevante sem transicao: hoje, ordem bloqueada esperando reposicao de insumo. Sem isso o bloqueio viveria so num ERROR de log, onde nem o atendente nem o cliente olham.';
 COMMENT ON COLUMN HISTORICO_STATUS.STATUS_ANTERIOR IS 'Nulo na abertura da OS, que nao vem de transicao.';
 COMMENT ON COLUMN HISTORICO_STATUS.MOTIVO IS 'Por que a transicao aconteceu. Em cancelamento por compensacao da saga, e aqui que fica a recusa do estoque.';
 COMMENT ON COLUMN HISTORICO_STATUS.CORRELATION_ID IS 'Correlacao da operacao que causou a transicao. Liga a linha do historico ao log e ao trace daquela requisicao.';
@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS SAGAS (
     TIPO VARCHAR(20) NOT NULL,
     SITUACAO VARCHAR(20) NOT NULL,
     ETAPA VARCHAR(20) NOT NULL,
+    TENTATIVA INTEGER NOT NULL DEFAULT 1,
     PRAZO_DA_ETAPA TIMESTAMPTZ(6) NOT NULL,
     MOTIVO VARCHAR(500),
     VERSAO INTEGER NOT NULL DEFAULT 0,
@@ -136,6 +137,7 @@ COMMENT ON COLUMN SAGAS.ORDEM_SERVICO_ID IS 'Identidade da saga. A chave da mens
 COMMENT ON COLUMN SAGAS.TIPO IS 'RESERVA ou CONSUMO. Sao duas sagas sequenciais na vida de uma OS, nao uma.';
 COMMENT ON COLUMN SAGAS.SITUACAO IS 'EM_CURSO, CONCLUIDA, COMPENSANDO, COMPENSADA ou FALHA. FALHA e o consumo recusado, que nao tem compensacao possivel.';
 COMMENT ON COLUMN SAGAS.ETAPA IS 'Etapa corrente, com teto de 20 caracteres: ela entra na chave de idempotencia, que o INBOX do catalogo guarda em 120 junto com o tipo da mensagem.';
+COMMENT ON COLUMN SAGAS.TENTATIVA IS 'Numero da tentativa da etapa corrente. Entra na chave de idempotencia porque retentar com a mesma chave seria engolido pelo INBOX do destino: para ele, a mensagem ja foi processada.';
 COMMENT ON COLUMN SAGAS.PRAZO_DA_ETAPA IS 'Quando esta etapa reprova por tempo. E sempre menor que o expiraEm da reserva no catalogo: o orquestrador e dono do relogio, e a expiracao de la e rede de seguranca.';
 COMMENT ON COLUMN SAGAS.VERSAO IS 'Trava otimista. Duas confirmacoes do mesmo passo chegando juntas tem de colidir aqui.';
 

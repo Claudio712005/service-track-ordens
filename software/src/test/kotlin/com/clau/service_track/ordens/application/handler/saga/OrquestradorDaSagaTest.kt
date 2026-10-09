@@ -56,6 +56,8 @@ class OrquestradorDaSagaTest {
         iniciarExecucao = escrita,
         finalizar = escrita,
         cancelar = escrita,
+        historico = historico,
+        correlacao = CorrelacaoFixaAdapter("atendimento-1"),
         prazoDaEtapa = Duration.ofMinutes(2),
     )
 
@@ -71,7 +73,7 @@ class OrquestradorDaSagaTest {
     }
 
     private fun mensagem(saga: Saga, passo: PassoDaSaga) = MensagemParaPublicar(
-        idMensagem = "${saga.ordemServicoId.valor}:${passo.etapa.name}:${passo.insumoId.valor}",
+        idMensagem = "${saga.ordemServicoId.valor}:${passo.etapa.name}:${passo.insumoId.valor}:${saga.tentativa}",
         agregadoTipo = "OrdemServico",
         agregadoId = saga.ordemServicoId.valor,
         chaveDeParticao = saga.ordemServicoId.valor,
@@ -224,9 +226,13 @@ class OrquestradorDaSagaTest {
         outbox.reiniciar()
         sagas.vencerPrazos()
 
-        val vencidas = orquestrador.comPrazoVencido(10)
-        assertEquals(1, vencidas.size)
-        assertTrue(orquestrador.reprovarPorPrazo(vencidas.single()))
+        assertTrue(orquestrador.reprovarProximaVencida())
+
+        sagas.restaurarRelogio()
+        assertFalse(
+            orquestrador.reprovarProximaVencida(),
+            "a compensacao recebeu prazo novo; a varredura nao pode reprovar a mesma saga de novo",
+        )
 
         assertEquals(1, outbox.enfileiradas.size)
         assertEquals(Saga.PRAZO_VENCIDO, sagas.porOrdemETipo(ordem.id, TipoDeSaga.RESERVA)!!.motivo)
@@ -247,7 +253,7 @@ class OrquestradorDaSagaTest {
     }
 
     @Test
-    fun `consumo recusado vira falha e nao cancela a OS`() {
+    fun `consumo recusado vira falha, nao cancela a OS e fica visivel no historico`() {
         val ordem = ordemAguardandoAprovacao()
         orquestrador.abrirReserva(ordem.id)
         orquestrador.confirmarPasso(ordem.id, oleo)
@@ -261,6 +267,78 @@ class OrquestradorDaSagaTest {
         assertEquals(SituacaoDaSaga.FALHA, saga.situacao)
         assertTrue(outbox.enfileiradas.isEmpty())
         assertEquals(StatusOrdemServicoEnum.EM_EXECUCAO, ordens.porId(ordem.id)!!.obterStatus())
+
+        val ultima = historico.porOrdem(ordem.id).last()
+        assertFalse(ultima.transicionou, "bloqueio nao muda o estado da OS")
+        assertEquals(StatusOrdemServicoEnum.EM_EXECUCAO, ultima.statusNovo)
+        assertTrue(ultima.motivo!!.contains("bloqueada"))
+        assertTrue(ultima.motivo!!.contains("CONSUMO_DE_INSUMOS"))
+        assertTrue(ultima.motivo!!.contains("reserva inexistente ou ja consumida"))
+        assertEquals("atendimento-1", ultima.correlationId)
+    }
+
+    @Test
+    fun `bloqueio nao suja a regua de estados, porque e filtravel`() {
+        val ordem = ordemAguardandoAprovacao()
+        orquestrador.abrirReserva(ordem.id)
+        orquestrador.confirmarPasso(ordem.id, oleo)
+        orquestrador.confirmarPasso(ordem.id, filtro)
+        orquestrador.abrirConsumo(ordem.id)
+        orquestrador.recusarPasso(ordem.id, oleo, "sem saldo")
+
+        val trilha = historico.porOrdem(ordem.id)
+
+        assertEquals(1, trilha.count { !it.transicionou })
+        assertTrue(trilha.filter { it.transicionou }.map { it.statusNovo }.containsAll(
+            listOf(
+                StatusOrdemServicoEnum.RECEBIDA,
+                StatusOrdemServicoEnum.EM_DIAGNOSTICO,
+                StatusOrdemServicoEnum.AGUARDANDO_APROVACAO,
+                StatusOrdemServicoEnum.EM_EXECUCAO,
+            )
+        ))
+    }
+
+    @Test
+    fun `consumo recusado e retentado depois da reposicao, com chave de tentativa nova`() {
+        val ordem = ordemAguardandoAprovacao()
+        orquestrador.abrirReserva(ordem.id)
+        orquestrador.confirmarPasso(ordem.id, oleo)
+        orquestrador.confirmarPasso(ordem.id, filtro)
+        orquestrador.abrirConsumo(ordem.id)
+        orquestrador.confirmarPasso(ordem.id, oleo)
+        orquestrador.recusarPasso(ordem.id, filtro, "reserva inexistente ou ja consumida")
+
+        assertEquals(SituacaoDaSaga.FALHA, sagas.porOrdemETipo(ordem.id, TipoDeSaga.CONSUMO)!!.situacao)
+        outbox.reiniciar()
+
+        val reaberta = orquestrador.abrirConsumo(ordem.id)
+
+        assertEquals(SituacaoDaSaga.EM_CURSO, reaberta.situacao)
+        assertEquals(2, reaberta.tentativa)
+        assertEquals(1, outbox.enfileiradas.size)
+        assertTrue(
+            outbox.enfileiradas.single().idMensagem.endsWith(":2"),
+            "a retentativa precisa de chave nova, senao o INBOX do destino a engole",
+        )
+        assertTrue(outbox.enfileiradas.single().idMensagem.contains(filtro.valor))
+
+        orquestrador.confirmarPasso(ordem.id, filtro)
+        assertEquals(StatusOrdemServicoEnum.FINALIZADA, ordens.porId(ordem.id)!!.obterStatus())
+    }
+
+    @Test
+    fun `reabrir saga concluida nao republica nada`() {
+        val ordem = ordemAguardandoAprovacao(listOf(oleo))
+        orquestrador.abrirReserva(ordem.id)
+        orquestrador.confirmarPasso(ordem.id, oleo)
+        outbox.reiniciar()
+
+        val mesma = orquestrador.abrirReserva(ordem.id)
+
+        assertEquals(SituacaoDaSaga.CONCLUIDA, mesma.situacao)
+        assertEquals(1, mesma.tentativa)
+        assertTrue(outbox.enfileiradas.isEmpty())
     }
 
     @Test

@@ -57,6 +57,7 @@ class OrdemServicoWebMapper {
     fun paraResposta(transicao: TransicaoDeStatus): TransicaoDeStatusResponse = TransicaoDeStatusResponse(
         statusAnterior = transicao.statusAnterior?.name,
         statusNovo = transicao.statusNovo.name,
+        transicionou = transicao.transicionou,
         motivo = transicao.motivo,
         correlationId = transicao.correlationId,
         ocorridoEm = transicao.ocorridoEm,

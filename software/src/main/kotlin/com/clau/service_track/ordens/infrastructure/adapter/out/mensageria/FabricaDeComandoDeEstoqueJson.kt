@@ -29,7 +29,8 @@ class FabricaDeComandoDeEstoqueJson(
 
     private fun comando(saga: Saga, passo: PassoDaSaga): MensagemParaPublicar {
         val tipo = tipoDe(passo.etapa)
-        val idMensagem = "${saga.ordemServicoId.valor}:${passo.etapa.name}:${passo.insumoId.valor}"
+        val idMensagem =
+            "${saga.ordemServicoId.valor}:${passo.etapa.name}:${passo.insumoId.valor}:${saga.tentativa}"
 
         val dados: Any = if (passo.etapa == EtapaDaSaga.RESERVA_DE_INSUMOS) {
             DadosDeReservarEstoque(

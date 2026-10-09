@@ -116,9 +116,10 @@ interface OrdemServicoApiPort {
     ): ResponseEntity<OrdemServicoResponse>
 
     @Operation(
-        summary = "Aprova o orçamento",
-        description = "Aprova e **não** avança o estado: a OS fica em AGUARDANDO_APROVACAO até a saga de " +
-            "reserva de insumos confirmar. É o que `POST /ordens/{id}/execucao` faz hoje, à mão."
+        summary = "Aprova o orçamento e abre a saga de reserva",
+        description = "Aprova o orçamento e **não** avança o estado: a OS fica em AGUARDANDO_APROVACAO até a " +
+            "saga de reserva confirmar todos os insumos. Ordem sem insumo não precisa de saga e vai direto " +
+            "para EM_EXECUCAO. Acompanhe o progresso em `GET /ordens/{id}/saga`."
     )
     @PostMapping("/{id}/orcamento/aprovacao")
     fun aprovarOrcamento(@PathVariable id: String): ResponseEntity<OrdemServicoResponse>
@@ -131,10 +132,10 @@ interface OrdemServicoApiPort {
     ): ResponseEntity<OrdemServicoResponse>
 
     @Operation(
-        summary = "Confirma a reserva e inicia a execução",
-        description = "**Temporário.** Na etapa 4 quem chama isto é o orquestrador da saga, ao receber " +
-            "EstoqueReservado de todos os insumos. Existe agora para que a OS não fique presa em " +
-            "AGUARDANDO_APROVACAO enquanto a saga não existe."
+        summary = "Força o início da execução, sem a saga",
+        description = "Transição manual de AGUARDANDO_APROVACAO para EM_EXECUCAO, para operação e " +
+            "diagnóstico. No caminho normal quem chama isto é o orquestrador, ao receber EstoqueReservado " +
+            "de todos os insumos — e exige orçamento aprovado de qualquer forma."
     )
     @PostMapping("/{id}/execucao")
     fun iniciarExecucao(@PathVariable id: String): ResponseEntity<OrdemServicoResponse>
@@ -148,8 +149,11 @@ interface OrdemServicoApiPort {
     ): ResponseEntity<OrdemServicoResponse>
 
     @Operation(
-        summary = "Finaliza a ordem",
-        description = "**Temporário.** Na etapa 4 passa a ser a confirmação do consumo de insumos pela saga."
+        summary = "Pede a finalização e abre a saga de consumo",
+        description = "A OS **continua** em EM_EXECUCAO até a saga de consumo confirmar todos os insumos. " +
+            "Ordem sem insumo vai direto para FINALIZADA. O consumo não tem compensação: se for recusado, a " +
+            "saga termina em FALHA e a OS fica em EM_EXECUCAO, de onde pode ser retentada em " +
+            "`POST /ordens/{id}/saga/consumo` depois da reposição de estoque, ou cancelada."
     )
     @PostMapping("/{id}/finalizacao")
     fun finalizar(@PathVariable id: String): ResponseEntity<OrdemServicoResponse>

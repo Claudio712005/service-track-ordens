@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-track-ordens
+  labels:
+    app: service-track-ordens
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  progressDeadlineSeconds: 300
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: service-track-ordens
+  template:
+    metadata:
+      labels:
+        app: service-track-ordens
+    spec:
+      containers:
+        - name: service-track-ordens
+          image: servicetrack-ordens:latest
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: service-track-ordens-config
+            - secretRef:
+                name: service-track-ordens-db
+                optional: true
+          startupProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 100m
+              memory: 448Mi
+            limits:
+              memory: 640Mi

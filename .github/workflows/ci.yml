@@ -1,0 +1,295 @@
+name: CI
+
+run-name: "CI de ${{ github.ref_name }} por @${{ github.actor }}"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: "25"
+  DIRETORIO: software
+
+jobs:
+
+  guarda-de-segredos:
+    name: "1. Guarda de segredos"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Nenhuma chave privada rastreada
+        run: |
+          RASTREADOS="$(git ls-files | grep -iE '\.(pem|key|p12|jks)$' || true)"
+          if [ -n "$RASTREADOS" ]; then
+            echo "::error::Material sensivel versionado:"
+            echo "$RASTREADOS"
+            exit 1
+          fi
+          echo "Nenhum arquivo de chave rastreado."
+
+      - name: Nenhum PEM versionado contem bloco privado
+        run: |
+          for arquivo in $(git ls-files '*.pem'); do
+            if grep -q "PRIVATE KEY" "$arquivo"; then
+              echo "::error::$arquivo contem uma chave privada"
+              exit 1
+            fi
+          done
+          echo "Nenhum PEM versionado carrega chave privada."
+
+      - name: Ferramental local nao vazou para o repositorio
+        run: |
+          VAZOU="$(git ls-files | grep -E '^(CLAUDE\.md|\.claude/|workspace/)' || true)"
+          if [ -n "$VAZOU" ]; then
+            echo "::error::Ferramental local versionado: $VAZOU"
+            exit 1
+          fi
+          echo "Ferramental local fora do repositorio."
+
+  construir:
+    name: "2. Build e testes"
+    needs: guarda-de-segredos
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ${{ env.DIRETORIO }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Compilar e testar
+        run: ./gradlew --no-daemon build
+
+      - name: Publicar relatorio de testes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-de-teste
+          path: ${{ env.DIRETORIO }}/build/test-results/test/
+          retention-days: 7
+
+      - name: Publicar artefato de build
+        uses: actions/upload-artifact@v4
+        with:
+          name: aplicacao-jar
+          path: ${{ env.DIRETORIO }}/build/libs/*-SNAPSHOT.jar
+          retention-days: 7
+
+      - name: Resumo
+        if: always()
+        run: |
+          TOTAL=$(grep -ho 'tests="[0-9]*"' build/test-results/test/*.xml 2>/dev/null \
+            | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
+          FALHAS=$(grep -ho 'failures="[0-9]*"' build/test-results/test/*.xml 2>/dev/null \
+            | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
+          {
+            echo "### Build de \`${{ github.ref_name }}\`"
+            echo ""
+            echo "| Metrica | Valor |"
+            echo "|---|---|"
+            echo "| Testes executados | $TOTAL |"
+            echo "| Falhas | $FALHAS |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  imagem:
+    name: "3. Imagem de container"
+    needs: construir
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Construir a imagem sem publicar
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.DIRETORIO }}
+          push: false
+          load: true
+          tags: servicetrack-ordens:${{ github.sha }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Conferir que a imagem sobe, aplica o baseline e publica comando no Kafka
+        run: |
+          docker network create ordens-ci
+          docker run -d --name postgres --network ordens-ci \
+            -e POSTGRES_DB=st_ord \
+            -e POSTGRES_USER=st_ord_user \
+            -e POSTGRES_PASSWORD=st_ord_ci \
+            postgres:16
+          docker run -d --name kafka --network ordens-ci \
+            -e KAFKA_NODE_ID=1 \
+            -e KAFKA_PROCESS_ROLES=broker,controller \
+            -e KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
+            -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
+            -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+            -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
+            -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
+            -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+            -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+            -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+            apache/kafka:3.9.0
+
+          limpar() {
+            docker rm -f ordens postgres kafka >/dev/null 2>&1 || true
+            docker network rm ordens-ci >/dev/null 2>&1 || true
+          }
+
+          for tentativa in $(seq 1 30); do
+            docker exec postgres pg_isready -U st_ord_user -d st_ord >/dev/null 2>&1 && break
+            sleep 2
+          done
+
+          docker cp db/postgres/01_baseline_st_ord.sql postgres:/tmp/baseline.sql
+          if ! docker exec postgres psql -v ON_ERROR_STOP=1 -U st_ord_user -d st_ord -f /tmp/baseline.sql; then
+            echo "::error::O baseline do Postgres falhou. Sem Flyway, nada mais aplica o schema."
+            limpar
+            exit 1
+          fi
+
+          for tentativa in $(seq 1 30); do
+            docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 && break
+            sleep 4
+          done
+
+          for topico in servicetrack.estoque.comandos.v1 servicetrack.estoque.eventos.v1 servicetrack.estoque.eventos.v1.dlt; do
+            docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+              --create --topic "$topico" --partitions 3 --replication-factor 1 >/dev/null
+          done
+
+          docker run -d --name ordens --network ordens-ci \
+            -e SPRING_PROFILES_ACTIVE=dev \
+            -e ST_ORD_DB_URL=jdbc:postgresql://postgres:5432/st_ord \
+            -e ST_ORD_DB_USER=st_ord_user \
+            -e ST_ORD_DB_PASSWORD=st_ord_ci \
+            -e ST_ORD_MESSAGING_ENABLED=true \
+            -e KAFKA_BOOTSTRAP_SERVERS=kafka:9092 \
+            -p 8080:8080 \
+            servicetrack-ordens:${{ github.sha }}
+
+          SUBIU=nao
+          for tentativa in $(seq 1 30); do
+            CODIGO="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || echo 000)"
+            if [ "$CODIGO" = "200" ]; then
+              echo "Aplicacao respondeu UP em ${tentativa}0s."
+              SUBIU=sim
+              break
+            fi
+            sleep 10
+          done
+
+          if [ "$SUBIU" != "sim" ]; then
+            echo "::error::A aplicacao nao respondeu UP em /actuator/health apos 5 minutos."
+            curl -s http://localhost:8080/actuator/health || true
+            docker logs ordens | tail -n 100
+            limpar
+            exit 1
+          fi
+
+          CLIENTE="$(cat /proc/sys/kernel/random/uuid)"
+          MECANICO="$(cat /proc/sys/kernel/random/uuid)"
+          VEICULO="$(cat /proc/sys/kernel/random/uuid)"
+          INSUMO="$(cat /proc/sys/kernel/random/uuid)"
+
+          ORDEM="$(curl -s -X POST http://localhost:8080/ordens \
+            -H 'Content-Type: application/json' \
+            -d "{\"motivo\":\"smoke de CI\",\"clienteId\":\"$CLIENTE\",\"mecanicoId\":\"$MECANICO\",\"veiculoId\":\"$VEICULO\"}" \
+            | grep -oE '"id":"[^"]+"' | head -1 | cut -d'"' -f4)"
+
+          if [ -z "$ORDEM" ]; then
+            echo "::error::A abertura da ordem nao devolveu identificador."
+            docker logs ordens | tail -n 60
+            limpar
+            exit 1
+          fi
+
+          curl -sf -X POST "http://localhost:8080/ordens/$ORDEM/diagnostico" > /dev/null
+          curl -sf -X POST "http://localhost:8080/ordens/$ORDEM/insumos" \
+            -H 'Content-Type: application/json' \
+            -d "{\"insumoId\":\"$INSUMO\",\"quantidade\":2}" > /dev/null
+          curl -sf -X POST "http://localhost:8080/ordens/$ORDEM/orcamento" \
+            -H 'Content-Type: application/json' \
+            -d '{"custoMaoDeObra":100.00,"custoInsumos":50.00}' > /dev/null
+          curl -sf -X POST "http://localhost:8080/ordens/$ORDEM/orcamento/aprovacao" > /dev/null
+
+          for tentativa in $(seq 1 15); do
+            PUBLICADO="$(docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+              --bootstrap-server localhost:9092 \
+              --topic servicetrack.estoque.comandos.v1 \
+              --from-beginning --timeout-ms 4000 2>/dev/null \
+              | grep -c "ReservarEstoque" || true)"
+            if [ "${PUBLICADO:-0}" -gt 0 ]; then
+              echo "A outbox publicou ReservarEstoque no Kafka: $PUBLICADO mensagem(ns)."
+              limpar
+              exit 0
+            fi
+            sleep 4
+          done
+
+          echo "::error::A saga abriu mas nenhum ReservarEstoque chegou ao topico de comandos."
+          curl -s "http://localhost:8080/ordens/$ORDEM/saga" || true
+          docker logs ordens | tail -n 80
+          limpar
+          exit 1
+
+      - name: Tamanho da imagem
+        if: success()
+        run: |
+          TAMANHO="$(docker image inspect servicetrack-ordens:${{ github.sha }} \
+            --format '{{.Size}}' | awk '{printf "%.0f", $1/1048576}')"
+          echo "| Imagem | ${TAMANHO} MB |" >> "$GITHUB_STEP_SUMMARY"
+
+  sonar:
+    name: "4. Analise no SonarCloud"
+    needs: construir
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ${{ env.DIRETORIO }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Analisar, se o token existir
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "::notice::SONAR_TOKEN ausente: analise ignorada. Crie o projeto no SonarCloud e o secret para ligar."
+            exit 0
+          fi
+          ./gradlew --no-daemon sonar

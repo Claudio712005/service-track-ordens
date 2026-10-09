@@ -217,6 +217,57 @@ class SagaTest {
     }
 
     @Test
+    fun `saga em falha reabre com tentativa nova e so o que nao confirmou`() {
+        val saga = consumo(listOf(oleo, filtro))
+        saga.confirmar(oleo)
+        saga.recusar(filtro, "reserva inexistente ou ja consumida")
+
+        assertEquals(SituacaoDaSaga.FALHA, saga.situacao)
+        assertEquals(1, saga.tentativa)
+
+        assertTrue(saga.reabrir(LocalDateTime.now().plusMinutes(2)))
+
+        assertEquals(SituacaoDaSaga.EM_CURSO, saga.situacao)
+        assertEquals(2, saga.tentativa)
+        assertEquals(null, saga.motivo)
+        assertEquals(listOf(filtro), saga.passosPendentes().map { it.insumoId })
+        assertEquals(
+            SituacaoDoPasso.CONFIRMADO,
+            saga.passosDaEtapa(EtapaDaSaga.CONSUMO_DE_INSUMOS).single { it.insumoId == oleo }.situacao,
+            "o que ja foi consumido nao pode ser pedido de novo",
+        )
+    }
+
+    @Test
+    fun `saga que nao esta em falha nao reabre`() {
+        val emCurso = consumo(listOf(oleo))
+        assertFalse(emCurso.reabrir(LocalDateTime.now().plusMinutes(2)))
+
+        val concluida = consumo(listOf(oleo))
+        concluida.confirmar(oleo)
+        assertFalse(concluida.reabrir(LocalDateTime.now().plusMinutes(2)))
+
+        val compensada = reserva(listOf(oleo))
+        compensada.recusar(oleo, "sem saldo")
+        assertEquals(SituacaoDaSaga.COMPENSADA, compensada.situacao)
+        assertFalse(compensada.reabrir(LocalDateTime.now().plusMinutes(2)))
+    }
+
+    @Test
+    fun `reabrir recusa depois do teto de tentativas`() {
+        val saga = consumo(listOf(oleo))
+
+        repeat(Saga.TETO_DE_TENTATIVAS - 1) {
+            saga.recusar(oleo, "sem saldo")
+            assertTrue(saga.reabrir(LocalDateTime.now().plusMinutes(2)))
+        }
+
+        assertEquals(Saga.TETO_DE_TENTATIVAS, saga.tentativa)
+        saga.recusar(oleo, "sem saldo")
+        assertFailsWith<DomainException> { saga.reabrir(LocalDateTime.now().plusMinutes(2)) }
+    }
+
+    @Test
     fun `passo com quantidade nao positiva e recusado`() {
         assertFailsWith<DomainException> {
             Saga.abrir(

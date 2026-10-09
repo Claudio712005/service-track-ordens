@@ -70,6 +70,70 @@ escrita. Toda escrita passa por `mutar()`, que compara o estado antes e depois e
 infraestrutura vazando para dentro; e o histórico precisa dela para ligar cada transição ao log
 e ao trace da requisição que a causou.
 
+## A saga
+
+Este serviço é o **orquestrador** (`GLOBAL-ADR-007`). O contrato está em
+[`docs/saga/saga-da-ordem-de-servico.md`](docs/saga/saga-da-ordem-de-servico.md); o que segue é
+como ele foi implementado.
+
+```
+aprovar orçamento ──> saga RESERVA ──┬─ todos confirmam ──> EM_EXECUCAO
+                                     └─ um recusa ────────> libera o reservado ──> CANCELADA
+
+pedir finalização ──> saga CONSUMO ──┬─ todos confirmam ──> FINALIZADA
+                                     └─ um recusa ────────> FALHA, ordem bloqueada
+```
+
+**A OS não ganha estado intermediário.** O progresso vive em `SAGAS` e `SAGA_PASSOS`; o cliente
+vê só o estado da ordem. `GET /ordens/{id}/saga` mostra o progresso a quem opera.
+
+### Quatro coisas que não se adivinham lendo o código
+
+**A tentativa está na chave de idempotência.** `<ordemServicoId>:<ETAPA>:<insumoId>:<tentativa>`.
+O catálogo considera processada qualquer reentrega com a mesma chave — **inclusive a recusa**,
+que é resposta de negócio bem-sucedida e fica registrada no INBOX dele. Retentar o consumo com a
+chave da primeira tentativa receberia silêncio, e a saga esperaria para sempre.
+
+**Consumo não compensa, mas retenta.** Baixar o reservado é irreversível pelo contrato do
+catálogo, então o consumo é o último passo com efeito externo. `ConsumoRecusado` leva a saga a
+`FALHA` e a OS **fica em `EM_EXECUCAO`**, com uma linha no histórico dizendo que está bloqueada —
+sem isso a falha viveria só num `ERROR` de log, onde nem o atendente nem o cliente olham. Daí
+`POST /ordens/{id}/saga/consumo` retenta depois da reposição, ou a OS é cancelada.
+
+**A compensação aceita uma janela de atraso.** Libera só os passos que confirmaram antes da
+recusa; se uma confirmação chegar depois, aquela reserva fica presa até o `expiraEm` vencer no
+catálogo. É escolha registrada: a rede de segurança de lá já existe, e liberar preventivamente
+custaria mensagem inútil no caminho normal.
+
+**O `traceparent` completo vai para a OUTBOX.** O publicador roda em rotina agendada, fora do
+span de origem, e restaura o contexto antes de enviar. Sem isso o consumidor entraria num trace
+vizinho — e o teste que garante isso foi verificado com controle negativo: desligando a
+restauração, ele falha apontando que o trace publicado é outro.
+
+### O prazo é deste serviço
+
+| Relógio | Padrão | Papel |
+|---|---|---|
+| prazo do passo | 2 min | reprova a etapa e dispara a compensação |
+| `expiraEm` da reserva | 10 min | rede de segurança do catálogo para saga abandonada |
+| varredura de prazo | 30 s | `FOR UPDATE SKIP LOCKED`, uma saga por transação |
+
+A varredura trava a linha porque, com mais de uma réplica, todas varreriam as mesmas sagas.
+
+### O cenário é executável
+
+`src/test/resources/features/saga-da-ordem-de-servico.feature`, em português, cinco cenários:
+fluxo completo, compensação por recusa, compensação por prazo, bloqueio e retentativa do
+consumo, e ordem sem insumo. É o roteiro da demonstração, e roda em `./gradlew check`.
+
+```bash
+cd software && ./gradlew test --tests '*ExecutorDeCenarios*'
+```
+
+**O gatilho de falha está no seed do catálogo**, não aqui: o insumo `OL-20W50-MIN-1L` abre com
+saldo zero e recusa toda reserva. Abrir uma OS com ele é a demonstração da compensação, sem
+mexer em infraestrutura durante a gravação.
+
 ## O banco
 
 Schema `ORDENS` no `st_ord`, sete tabelas em [`db/postgres/01_baseline_st_ord.sql`](db/postgres/01_baseline_st_ord.sql).
@@ -82,7 +146,8 @@ Schema `ORDENS` no `st_ord`, sete tabelas em [`db/postgres/01_baseline_st_ord.sq
 | `ITENS_SERVICO` | mão de obra, com o valor congelado no orçamento |
 | `ITENS_INSUMO` | material **com quantidade** — é a entrada de cada `ReservarEstoque` |
 | `HISTORICO_STATUS` | por onde a OS passou, que o enum não responde |
-| `OUTBOX` / `INBOX` | criadas agora, usadas na etapa da saga |
+| `SAGAS` / `SAGA_PASSOS` | progresso da transação distribuída, com trava otimista |
+| `OUTBOX` / `INBOX` | mensagem gravada na mesma transação do dado, e idempotência do consumidor |
 
 `OUTBOX.TRACEPARENT` guarda o cabeçalho W3C **completo**, não só o `traceId`: o publicador roda
 em rotina agendada, fora do span de origem, e sem o cabeçalho inteiro não há como declarar
@@ -93,13 +158,13 @@ estrangeira**: é dado de outro serviço e não existe join possível.
 
 ## Cobertura
 
-Portão em linha 80%, instrução 80%, ramo 60%. Medido em 07/10/2026, com 139 testes:
+Portão em linha 80%, instrução 80%, ramo 60%. Medido em 07/10/2026, com 187 testes e 5 cenários BDD:
 
 | Contador | Atual | Portão |
 |---|---|---|
-| linha | 95,6% | 80% |
-| instrução | 89,1% | 80% |
-| ramo | 81,4% | 60% |
+| linha | 93,8% | 80% |
+| instrução | 87,0% | 80% |
+| ramo | 77,7% | 60% |
 
 ```bash
 cd software && ./gradlew check
@@ -115,17 +180,6 @@ teste com Postgres de verdade entra junto com a esteira.
 [`docs/ambiente-local.md`](docs/ambiente-local.md). Resumo: `docker compose up -d postgres` e
 `./gradlew bootRun --args='--spring.profiles.active=dev'`. O Postgres sobe em **5433**, para não
 colidir com o do catálogo.
-
----
-
-## O que ainda não existe
-
-- **Saga e compensação**: orquestrador, produtor e consumidor Kafka, e o gatilho de falha
-  embutido para a demonstração. `POST /ordens/{id}/execucao` e `POST /ordens/{id}/finalizacao`
-  são **temporários**: hoje são chamados à mão, e passam a ser a confirmação da reserva e do
-  consumo de insumos.
-- **BDD**: um fluxo completo em Cucumber cobrindo a saga e a compensação.
-- **Dockerfile, `k8s/`, `infra/terraform` e as esteiras.**
 
 ---
 
