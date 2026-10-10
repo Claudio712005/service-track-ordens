@@ -211,11 +211,16 @@ dos dois é o defeito, e ele aparece depois de parecer ter funcionado.
 `servicetrack.estoque.eventos.v1` é do catálogo, que emite. Este serviço só hospeda. A
 propriedade segue o assunto, não o processo — `GLOBAL-ADR-010`.
 
-### Broker ausente derruba a subida
+### Broker ausente ainda é silencioso, e isso é dívida aberta
 
-`KAFKA_ADMIN_FAIL_FAST=true` nos três overlays e no smoke da esteira. Sem isso, mensageria
-ligada sem broker não dá erro de subida: dá retentativa infinita e OUTBOX crescendo em silêncio.
-Um pod em `CrashLoopBackOff` com causa no log é mais barato.
+Mensageria ligada sem endereço de broker não dá erro de subida: dá retentativa infinita e OUTBOX
+crescendo sem ninguém olhar. `spring.kafka.admin.fail-fast` foi tentado e **descartado** — ele
+derruba a subida por broker *indisponível*, não por configuração errada, e isso contraria a
+decisão medida do catálogo de que indisponibilidade do broker não tira o HTTP do ar. Num cluster
+onde o broker sobe com `strategy: Recreate` e sem volume, um restart dele derrubaria os dois
+serviços.
+
+O que falta é distinguir **configuração ausente** de **broker fora do ar**. Permanece aberto.
 
 ### `local` tem broker próprio, e isso é divergência declarada
 

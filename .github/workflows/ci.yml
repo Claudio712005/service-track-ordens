@@ -189,7 +189,6 @@ jobs:
             -e ST_ORD_DB_PASSWORD=st_ord_ci \
             -e ST_ORD_MESSAGING_ENABLED=true \
             -e KAFKA_BOOTSTRAP_SERVERS=kafka:9092 \
-            -e KAFKA_ADMIN_FAIL_FAST=true \
             -p 8080:8080 \
             servicetrack-ordens:${{ github.sha }}
 

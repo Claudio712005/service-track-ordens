@@ -28,5 +28,4 @@ configMapGenerator:
       - ST_ORD_DB_POOL_MIN=2
       - ST_ORD_MESSAGING_ENABLED=true
       - KAFKA_BOOTSTRAP_SERVERS=service-track-ordens-kafka.service-track-ordens.svc.cluster.local:9092
-      - KAFKA_ADMIN_FAIL_FAST=true
       - OTEL_JAVAAGENT_ENABLED=false

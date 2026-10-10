@@ -35,8 +35,6 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
       acks: all
-    admin:
-      fail-fast: ${KAFKA_ADMIN_FAIL_FAST:false}
     listener:
       ack-mode: record
       observation-enabled: true
