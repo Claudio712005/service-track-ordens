@@ -183,6 +183,48 @@ colidir com o do catálogo.
 
 ---
 
+## O broker é deste serviço
+
+Um broker por ambiente, hospedado aqui, por `GLOBAL-ADR-011`. Quem orquestra não pode ficar sem fila: se o broker vivesse no participante, o orquestrador
+passaria a depender da infraestrutura de quem ele comanda.
+
+O `service-track-catalogo` consome deste broker e **não** hospeda um próprio nos ambientes
+compartilhados.
+
+### O endereço é FQDN nos dois lugares, e isso não é redundância
+
+```
+service-track-ordens-kafka.service-track-ordens.svc.cluster.local:9092
+```
+
+| Onde | Usado quando |
+|---|---|
+| `KAFKA_BOOTSTRAP_SERVERS` | primeira conexão do cliente |
+| `KAFKA_ADVERTISED_LISTENERS` do broker | **segunda** conexão, no endereço que o broker anuncia |
+
+Cliente Kafka conecta no bootstrap e reconecta no endereço anunciado. Com nome curto, cliente de
+outro namespace conecta e **trava no metadata** — erro que não diz o que é. Trocar só o primeiro
+dos dois é o defeito, e ele aparece depois de parecer ter funcionado.
+
+### Hospedar o broker não dá voz no contrato alheio
+
+`servicetrack.estoque.eventos.v1` é do catálogo, que emite. Este serviço só hospeda. A
+propriedade segue o assunto, não o processo — `GLOBAL-ADR-010`.
+
+### Broker ausente derruba a subida
+
+`KAFKA_ADMIN_FAIL_FAST=true` nos três overlays e no smoke da esteira. Sem isso, mensageria
+ligada sem broker não dá erro de subida: dá retentativa infinita e OUTBOX crescendo em silêncio.
+Um pod em `CrashLoopBackOff` com causa no log é mais barato.
+
+### `local` tem broker próprio, e isso é divergência declarada
+
+O overlay `local` existe para subir **um** repositório sozinho. O endereço tem o mesmo formato
+que em `hml`, mas o broker é o deste repositório. O que `local` não serve para testar é a saga
+entre serviços; isso é `@EmbeddedKafka` em teste, e `hml` ao vivo.
+
+---
+
 ## Contrato da saga
 
 Escrito antes do código, de propósito: a saga atravessa três serviços e um contrato descoberto
