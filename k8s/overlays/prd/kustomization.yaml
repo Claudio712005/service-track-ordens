@@ -7,6 +7,7 @@ resources:
   - ../../base
 
 components:
+  - ../../componentes/kafka-efemero
   - ../../componentes/nodeport
 
 images:
@@ -25,5 +26,7 @@ configMapGenerator:
     literals:
       - ST_ORD_DB_POOL_MAX=10
       - ST_ORD_DB_POOL_MIN=2
-      - ST_ORD_MESSAGING_ENABLED=false
+      - ST_ORD_MESSAGING_ENABLED=true
+      - KAFKA_BOOTSTRAP_SERVERS=service-track-ordens-kafka.service-track-ordens.svc.cluster.local:9092
+      - KAFKA_ADMIN_FAIL_FAST=true
       - OTEL_JAVAAGENT_ENABLED=false
