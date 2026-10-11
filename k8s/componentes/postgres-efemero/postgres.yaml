@@ -26,14 +26,14 @@ spec:
             - containerPort: 5432
           env:
             - name: POSTGRES_DB
-              value: st_cat
+              value: st_ord
             - name: POSTGRES_USER
-              value: st_cat_user
+              value: st_ord_user
             - name: POSTGRES_PASSWORD
-              value: st_cat_local
+              value: st_ord_local
           readinessProbe:
             exec:
-              command: ["pg_isready", "-U", "st_cat_user", "-d", "st_cat"]
+              command: ["pg_isready", "-U", "st_ord_user", "-d", "st_ord"]
             initialDelaySeconds: 10
             periodSeconds: 10
           resources:
