@@ -211,16 +211,21 @@ dos dois é o defeito, e ele aparece depois de parecer ter funcionado.
 `servicetrack.estoque.eventos.v1` é do catálogo, que emite. Este serviço só hospeda. A
 propriedade segue o assunto, não o processo — `GLOBAL-ADR-010`.
 
-### Broker ausente ainda é silencioso, e isso é dívida aberta
+### Endereço ausente impede a subida, broker inacessível não
 
-Mensageria ligada sem endereço de broker não dá erro de subida: dá retentativa infinita e OUTBOX
-crescendo sem ninguém olhar. `spring.kafka.admin.fail-fast` foi tentado e **descartado** — ele
-derruba a subida por broker *indisponível*, não por configuração errada, e isso contraria a
-decisão medida do catálogo de que indisponibilidade do broker não tira o HTTP do ar. Num cluster
-onde o broker sobe com `strategy: Recreate` e sem volume, um restart dele derrubaria os dois
-serviços.
+As duas coisas são diferentes e têm tratamento diferente:
 
-O que falta é distinguir **configuração ausente** de **broker fora do ar**. Permanece aberto.
+| Situação | Comportamento |
+|---|---|
+| `KAFKA_BOOTSTRAP_SERVERS` não informado | a aplicação **não sobe**, com a variável nomeada no erro |
+| Endereço informado, broker inacessível | sobe e atende HTTP; o consumidor reconecta e a OUTBOX drena |
+
+`KAFKA_BOOTSTRAP_SERVERS` não tem default fora do perfil `dev`, e a configuração de mensageria
+recusa endereço em branco.
+
+`spring.kafka.admin.fail-fast` foi tentado e **descartado**: ele derruba a subida pela segunda
+situação, não pela primeira. Com o broker em `strategy: Recreate` e sem volume, um restart dele
+derrubaria os dois serviços.
 
 ### `local` tem broker próprio, e isso é divergência declarada
 
