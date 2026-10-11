@@ -45,6 +45,7 @@ class MensageriaConfig {
         fabrica.setConcurrency(propriedades.concurrency)
         fabrica.setCommonErrorHandler(tratador)
         fabrica.containerProperties.isMissingTopicsFatal = false
+        fabrica.containerProperties.isObservationEnabled = true
         return fabrica
     }
 }

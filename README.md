@@ -183,6 +183,53 @@ colidir com o do catálogo.
 
 ---
 
+## O broker é deste serviço
+
+Um broker por ambiente, hospedado aqui, por `GLOBAL-ADR-011`. Quem orquestra não pode ficar sem fila: se o broker vivesse no participante, o orquestrador
+passaria a depender da infraestrutura de quem ele comanda.
+
+O `service-track-catalogo` consome deste broker e **não** hospeda um próprio nos ambientes
+compartilhados.
+
+### O endereço é FQDN nos dois lugares, e isso não é redundância
+
+```
+service-track-ordens-kafka.service-track-ordens.svc.cluster.local:9092
+```
+
+| Onde | Usado quando |
+|---|---|
+| `KAFKA_BOOTSTRAP_SERVERS` | primeira conexão do cliente |
+| `KAFKA_ADVERTISED_LISTENERS` do broker | **segunda** conexão, no endereço que o broker anuncia |
+
+Cliente Kafka conecta no bootstrap e reconecta no endereço anunciado. Com nome curto, cliente de
+outro namespace conecta e **trava no metadata** — erro que não diz o que é. Trocar só o primeiro
+dos dois é o defeito, e ele aparece depois de parecer ter funcionado.
+
+### Hospedar o broker não dá voz no contrato alheio
+
+`servicetrack.estoque.eventos.v1` é do catálogo, que emite. Este serviço só hospeda. A
+propriedade segue o assunto, não o processo — `GLOBAL-ADR-010`.
+
+### Broker ausente ainda é silencioso, e isso é dívida aberta
+
+Mensageria ligada sem endereço de broker não dá erro de subida: dá retentativa infinita e OUTBOX
+crescendo sem ninguém olhar. `spring.kafka.admin.fail-fast` foi tentado e **descartado** — ele
+derruba a subida por broker *indisponível*, não por configuração errada, e isso contraria a
+decisão medida do catálogo de que indisponibilidade do broker não tira o HTTP do ar. Num cluster
+onde o broker sobe com `strategy: Recreate` e sem volume, um restart dele derrubaria os dois
+serviços.
+
+O que falta é distinguir **configuração ausente** de **broker fora do ar**. Permanece aberto.
+
+### `local` tem broker próprio, e isso é divergência declarada
+
+O overlay `local` existe para subir **um** repositório sozinho. O endereço tem o mesmo formato
+que em `hml`, mas o broker é o deste repositório. O que `local` não serve para testar é a saga
+entre serviços; isso é `@EmbeddedKafka` em teste, e `hml` ao vivo.
+
+---
+
 ## Contrato da saga
 
 Escrito antes do código, de propósito: a saga atravessa três serviços e um contrato descoberto

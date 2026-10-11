@@ -24,5 +24,5 @@ configMapGenerator:
       - ST_ORD_DB_USER=st_ord_user
       - ST_ORD_DB_PASSWORD=st_ord_local
       - ST_ORD_MESSAGING_ENABLED=true
-      - KAFKA_BOOTSTRAP_SERVERS=service-track-ordens-kafka:9092
+      - KAFKA_BOOTSTRAP_SERVERS=service-track-ordens-kafka.service-track-ordens.svc.cluster.local:9092
       - OTEL_JAVAAGENT_ENABLED=false
