@@ -76,7 +76,7 @@ jobs:
         if: steps.prereq.outputs.pular == 'false'
         run: bash scripts/criar-secret-do-banco.sh "${{ inputs.env }}"
 
-      - name: Aplicar o baseline do Postgres e do Mongo
+      - name: Aplicar o baseline do Postgres
         if: steps.prereq.outputs.pular == 'false'
         env:
           MONGO_OPCIONAL: "1"
@@ -109,7 +109,6 @@ jobs:
               echo "|---|---|"
               echo "| Segredo do banco no cluster | aplicado a partir do SSM |"
               echo "| Baseline e seed do Postgres | aplicado de dentro do cluster |"
-              echo "| Baseline e seed do Mongo | aplicado se o pod existia |"
               echo ""
               echo "Os scripts sao idempotentes: rodar de novo nao duplica nada."
             fi
