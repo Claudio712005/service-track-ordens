@@ -3,6 +3,7 @@ package com.clau.service_track.ordens.infrastructure.adapter.config.mensageria
 import com.clau.service_track.ordens.infrastructure.adapter.`in`.mensageria.MensagemInvalidaException
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import org.springframework.boot.kafka.autoconfigure.KafkaProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory
@@ -14,7 +15,18 @@ import org.springframework.util.backoff.ExponentialBackOff
 
 @Configuration
 @ConditionalOnProperty(prefix = "servicetrack.messaging", name = ["enabled"], havingValue = "true")
-class MensageriaConfig {
+class MensageriaConfig(kafka: KafkaProperties) {
+
+    init {
+        val endereco = kafka.bootstrapServers.filter { it.isNotBlank() }
+        if (endereco.isEmpty()) {
+            throw IllegalStateException(
+                "mensageria ligada sem KAFKA_BOOTSTRAP_SERVERS: o endereco do broker nao foi " +
+                    "informado. Isto e configuracao ausente, nao broker fora do ar — broker " +
+                    "indisponivel nao impede a subida, por desenho.",
+            )
+        }
+    }
 
     @Bean
     fun deadLetterPublishingRecoverer(
