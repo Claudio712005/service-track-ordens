@@ -23,7 +23,7 @@ spring:
     virtual:
       enabled: true
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:}
     client-id: ${spring.application.name}
     consumer:
       group-id: ${servicetrack.messaging.group}
@@ -94,6 +94,8 @@ spring:
     url: ${ST_ORD_DB_URL:jdbc:postgresql://localhost:5433/st_ord}
     username: ${ST_ORD_DB_USER:st_ord_user}
     password: ${ST_ORD_DB_PASSWORD:st_ord_local}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 
 servicetrack:
   messaging:
