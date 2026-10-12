@@ -158,13 +158,13 @@ estrangeira**: é dado de outro serviço e não existe join possível.
 
 ## Cobertura
 
-Portão em linha 80%, instrução 80%, ramo 60%. Medido em 07/10/2026, com 187 testes e 5 cenários BDD:
+Portão em linha 80%, instrução 80%, ramo 60%. Medido em 12/10/2026, com 192 testes e 5 cenários BDD:
 
 | Contador | Atual | Portão |
 |---|---|---|
-| linha | 93,8% | 80% |
-| instrução | 87,0% | 80% |
-| ramo | 77,7% | 60% |
+| linha | 93,9% | 80% |
+| instrução | 87,1% | 80% |
+| ramo | 77,9% | 60% |
 
 ```bash
 cd software && ./gradlew check
@@ -172,14 +172,39 @@ cd software && ./gradlew check
 
 Os adaptadores de repositório são exercitados contra **H2 em modo PostgreSQL** com o schema
 gerado pelo Hibernate. Isso cobre o mapeamento e a JPQL, e **não** cobre o acordo entre as
-entidades e o baseline escrito à mão — quem confere isso é o `ddl-auto: validate` no start, e um
-teste com Postgres de verdade entra junto com a esteira.
+entidades e o baseline escrito à mão — quem confere isso é o `ddl-auto: validate` no start, e o
+smoke da esteira de CI, que sobe a imagem contra um Postgres de verdade com o baseline aplicado.
 
 ## Ambiente local
 
 [`docs/ambiente-local.md`](docs/ambiente-local.md). Resumo: `docker compose up -d postgres` e
 `./gradlew bootRun --args='--spring.profiles.active=dev'`. O Postgres sobe em **5433**, para não
 colidir com o do catálogo.
+
+---
+
+## Como este serviço sobe
+
+| Ambiente | Banco | Broker | Imagem | Exposição |
+|---|---|---|---|---|
+| `local` (kind) | `componentes/postgres-efemero` | `componentes/kafka-efemero` | `servicetrack-ordens:local` | NodePort, para o kind expor ao host |
+| `hml` e `prd` | RDS próprio, por `infra/terraform` | `componentes/kafka-efemero`, que este serviço hospeda | ECR do ambiente | **nenhuma** — só pelo DNS do cluster |
+
+**Nenhum gateway alcança este serviço** (`IAC-ADR-035`). Quem o chama é o BFF, de dentro do
+cluster, por `http://service-track-ordens.service-track-ordens.svc.cluster.local`.
+
+Quatro esteiras:
+
+| Esteira | O que faz |
+|---|---|
+| **CI** | guarda de higiene, build e testes, imagem, e o smoke que abre uma OS e confere que `ReservarEstoque` chegou ao tópico |
+| **Infra** | ECR e RDS `st_ord`, com a precondição de orçamento de conexão |
+| **Banco** | `Secret` do banco a partir do SSM e baseline aplicado de dentro do cluster |
+| **CD** | publica a imagem e abre PR com a nova tag; o deploy acontece quando esse PR entra na `main` |
+
+A credencial do banco **não está neste repositório e nunca estará**: `ST_ORD_DB_URL`,
+`ST_ORD_DB_USER` e `ST_ORD_DB_PASSWORD` vêm do `Secret` `service-track-ordens-db`, criado por
+`scripts/criar-secret-do-banco.sh` a partir de `/servicetrack/<env>/ordens/db/*` no SSM.
 
 ---
 
