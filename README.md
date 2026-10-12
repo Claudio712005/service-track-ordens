@@ -252,6 +252,30 @@ recusa endereço em branco.
 situação, não pela primeira. Com o broker em `strategy: Recreate` e sem volume, um restart dele
 derrubaria os dois serviços.
 
+### Por que o broker é efêmero, e o que isso custa
+
+O broker é **KRaft de nó único e sem volume nenhum** — nem `emptyDir`, nem PVC. O dado vive na
+camada de escrita do contêiner, então **reinício do contêiner perde mensagem em voo**, não só o
+`destroy`. Decidido assim no `GLOBAL-ADR-007`, e a razão é a premissa do `GLOBAL-ADR-002`:
+
+**nada gerado por `apply` é estável.** O ambiente é destruído depois de cada teste e de cada
+apresentação. Um PVC sobreviveria ao reinício do pod e **não** sobreviveria ao `destroy` — então
+compraria pouco, e cobraria caro: um volume EBS por ambiente e mais uma peça para o
+`scripts/aws-lb-cleanup.sh` remover antes da VPC poder ir embora. Só valeria a pena para
+demonstrar replay, que ninguém pediu.
+
+**O que torna isso suportável é a OUTBOX, não o broker.** O evento é gravado no Postgres na mesma
+transação do dado e só é marcado como publicado depois que o broker confirma. Broker reiniciado
+ou fora do ar: a linha continua pendente e sai na próxima passagem do publicador. **O registro
+durável está no banco, não no Kafka.** Do outro lado, o consumidor tem INBOX, porque todo broker
+entrega ao menos uma vez.
+
+Sobra uma exposição real, e ela está aceita: **mensagem já publicada e ainda não consumida
+morre.** Por isso nenhuma demonstração pode depender de estado acumulado no broker — isso entra
+no roteiro, para ninguém atribuir a defeito.
+
+MSK gerenciado foi descartado: bloqueado na conta AWS Academy, e caro mesmo se não fosse.
+
 ### `local` tem broker próprio, e isso é divergência declarada
 
 O overlay `local` existe para subir **um** repositório sozinho. O endereço tem o mesmo formato
