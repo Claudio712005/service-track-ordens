@@ -12,7 +12,7 @@ components:
 images:
   - name: servicetrack-ordens
     newName: 734564927706.dkr.ecr.us-east-1.amazonaws.com/servicetrack-hml-ordens
-    newTag: placeholder
+    newTag: 8afe130249fd8e31dd9c8f5a0a15aaed97dedd7d
 
 patches:
   - path: hpa-patch.yaml
