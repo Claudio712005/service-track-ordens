@@ -50,13 +50,12 @@ spec:
             - name: KAFKA_NUM_PARTITIONS
               value: "3"
           readinessProbe:
-            exec:
-              command:
-                - /opt/kafka/bin/kafka-broker-api-versions.sh
-                - --bootstrap-server
-                - localhost:9092
+            tcpSocket:
+              port: 9092
             initialDelaySeconds: 20
-            periodSeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
           resources:
             requests:
               cpu: 200m
