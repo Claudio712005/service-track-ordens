@@ -26,6 +26,7 @@ extra["datasourceMicrometerVersion"] = "2.3.0"
 extra["springCloudVersion"] = "2025.1.3"
 
 dependencies {
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-kafka")
     implementation("org.springframework.boot:spring-boot-starter-micrometer-metrics")
