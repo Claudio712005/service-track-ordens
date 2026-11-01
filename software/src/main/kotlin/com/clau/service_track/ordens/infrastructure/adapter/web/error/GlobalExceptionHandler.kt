@@ -15,6 +15,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
+import org.springframework.web.servlet.resource.NoResourceFoundException
 
 @RestControllerAdvice
 class GlobalExceptionHandler(
@@ -102,6 +103,15 @@ class GlobalExceptionHandler(
             HttpStatus.METHOD_NOT_ALLOWED,
             CodigoErro.METODO_NAO_SUPORTADO,
             "Método ${e.method} não é previsto para este recurso",
+            requisicao,
+        )
+
+    @ExceptionHandler(NoResourceFoundException::class)
+    fun rotaNaoEncontrada(e: NoResourceFoundException, requisicao: HttpServletRequest) =
+        fabrica.montar(
+            HttpStatus.NOT_FOUND,
+            CodigoErro.RECURSO_NAO_ENCONTRADO,
+            "Nenhuma rota responde a ${requisicao.method} ${requisicao.requestURI}",
             requisicao,
         )
 
