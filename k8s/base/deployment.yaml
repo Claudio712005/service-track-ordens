@@ -28,6 +28,9 @@ spec:
             - secretRef:
                 name: service-track-ordens-db
                 optional: true
+            - secretRef:
+                name: service-track-observabilidade
+                optional: true
           startupProbe:
             httpGet:
               path: /actuator/health/readiness
