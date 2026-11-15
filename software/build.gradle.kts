@@ -127,7 +127,7 @@ tasks.check {
 
 sonar {
     properties {
-        property("sonar.projectKey", "claudio712005_service-track-ordens")
+        property("sonar.projectKey", "Claudio712005_service-track-ordens")
         property("sonar.organization", "claudio712005")
         property("sonar.host.url", "https://sonarcloud.io")
         property("sonar.sourceEncoding", "UTF-8")
